@@ -1093,7 +1093,7 @@ show_status() {
     if [[ -f "$BIN_FILE" && -f "$VERSION_FILE" && "$software_version" != "未知" ]]; then
         local chan
         chan=$(channel_name "$(detect_channel "$software_version")")
-        kv "版本通道" "${COLOR_GREEN}${chan}${COLOR_RESET}"
+        kv "内核版本通道" "${COLOR_GREEN}${chan}${COLOR_RESET}"
     fi
     # 发布通道是脚本自身的来源分支，与上面的内核版本通道互不影响
     if [[ "$RELEASE_CHANNEL" == 'beta' ]]; then
@@ -1101,7 +1101,7 @@ show_status() {
     else
         release_text="${COLOR_GREEN}$(release_channel_name "$RELEASE_CHANNEL")（${RELEASE_CHANNEL}）${COLOR_RESET}"
     fi
-    kv "发布通道" "$release_text"
+    kv "脚本发布通道" "$release_text"
     kv "本机IPv4" "${COLOR_GREEN}${ipv4}${COLOR_RESET}"
     # 无 IPv6 时用默认色：绿色是成功色，"无"不是成功状态
     if [[ -n "${ipv6:-}" ]]; then

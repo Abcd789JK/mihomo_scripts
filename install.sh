@@ -2133,7 +2133,7 @@ install_mihomo() {
     hr
     log_success "安装完成"
     kv "安装目录" "$ROOT_DIR"
-    kv "发布通道" "$(release_channel_name "$RELEASE_CHANNEL")（${RELEASE_CHANNEL}）"
+    kv "脚本发布通道" "$(release_channel_name "$RELEASE_CHANNEL")（${RELEASE_CHANNEL}）"
     kv "面板地址" "${COLOR_GREEN}$(panel_url)${COLOR_RESET}"
     if [[ -n "$controller_secret" ]]; then
         kv "面板密钥" "${COLOR_GREEN}${controller_secret}${COLOR_RESET}"
