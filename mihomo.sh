@@ -5,7 +5,7 @@
 # desc   : mihomo 内核与订阅配置的交互式管理脚本
 # date   : 2026-11-27 16:33:04
 # author : ChatGPT JK789
-# ver    : 2.6.0
+# ver    : 2.6.0-beta
 # --------------------------------------------------
 
 # 与 install.sh 共用同名函数，改动需同步两份；
@@ -38,7 +38,7 @@ if (( EUID != 0 )); then
 fi
 
 # 声明当前脚本版本，必须与文件头 ver 完全一致。
-readonly SCRIPT_VERSION="2.6.0"
+readonly SCRIPT_VERSION="2.6.0-beta"
 
 # 收紧新建文件的默认权限：配置、日志和临时文件只允许属主访问。
 umask 077
@@ -488,7 +488,7 @@ service_do() { # $1=start|stop|restart
     esac
 }
 
-# 按 init 系统设置或取消开机自启。
+# 按 init 系统启用或禁用开机自启。
 service_enable_toggle() { # $1=enable|disable
     case "$init_sys" in
         systemd)
@@ -539,7 +539,7 @@ wait_active() { # $1=最多等待秒数，默认 10
     return 1
 }
 
-# 判断是否已设置开机自启。
+# 判断是否已启用开机自启。
 service_is_enabled() {
     local out=""
     case "$init_sys" in
@@ -1050,18 +1050,17 @@ check_installation() {
     return 0
 }
 
-# 打印安装、运行、自启与版本等状态面板。
+# 打印状态面板，按系统运行 / 版本更新 / 网络访问三组排列，不新增分组标题。
 show_status() {
     local install_status run_status auto_start software_version update_time script_path
-    local release_text
+    local release_text kernel_chan
     detect_network_info
 
     script_path=$(command -v mihomo 2>/dev/null || true)
     [[ -n "$script_path" ]] || script_path="$SHELL_FILE"
 
-    # 失败不再拖垮整个状态页
-    # 一次性剥掉 "# date   : " 前缀，兼容 "2026-10-20" 与 "2026-10-20 20:33:09" 两种写法
-    # 旧实现连用两次 ${var#*:}，会把 "2025-11-23 11:25:43" 截成 "25:43"
+    # 脚本更新日期只取管理脚本文件头的 date 字段，不使用当前运行时间。
+    # 一次性剥掉 "# date   : " 前缀，兼容 "2026-10-20" 与 "2026-10-20 20:33:09" 两种写法。
     update_time=""
     if [[ -f "$script_path" ]]; then
         update_time=$(awk '/^#[[:space:]]*date[[:space:]]*:/ {
@@ -1074,68 +1073,109 @@ show_status() {
     [[ -n "$update_time" ]] || update_time="未知"
 
     if [[ ! -f "$BIN_FILE" ]]; then
-        install_status="${COLOR_RED}未安装${COLOR_RESET}"
-        run_status="${COLOR_RED}未运行${COLOR_RESET}"
-        auto_start="${COLOR_RED}未设置${COLOR_RESET}"
-        software_version="${COLOR_RED}未安装${COLOR_RESET}"
+        install_status="${COLOR_GRAY}未安装${COLOR_RESET}"
+        run_status="${COLOR_GRAY}未安装${COLOR_RESET}"
+        auto_start="${COLOR_GRAY}未安装${COLOR_RESET}"
+        software_version="${COLOR_GRAY}未安装${COLOR_RESET}"
+        kernel_chan="未安装"
     else
         install_status="${COLOR_GREEN}已安装${COLOR_RESET}"
-        if service_is_active; then
-            run_status="${COLOR_GREEN}已运行${COLOR_RESET}"
-        else
-            run_status="${COLOR_RED}未运行${COLOR_RESET}"
-        fi
-        if service_is_enabled; then
-            auto_start="${COLOR_GREEN}已设置${COLOR_RESET}"
-        else
-            auto_start="${COLOR_RED}未设置${COLOR_RESET}"
-        fi
+        # 正常停止用灰色"已停止"，只有 systemd 明确报 failed 才算运行异常。
+        case "$init_sys" in
+            systemd)
+                local run_out
+                run_out=$(systemctl is-active mihomo 2>/dev/null || true)
+                if service_is_active; then
+                    run_status="${COLOR_GREEN}运行中${COLOR_RESET}"
+                elif [[ "$run_out" == "failed" ]]; then
+                    run_status="${COLOR_RED}异常${COLOR_RESET}"
+                else
+                    run_status="${COLOR_GRAY}已停止${COLOR_RESET}"
+                fi
+                ;;
+            openrc)
+                if service_is_active; then
+                    run_status="${COLOR_GREEN}运行中${COLOR_RESET}"
+                else
+                    run_status="${COLOR_GRAY}已停止${COLOR_RESET}"
+                fi
+                ;;
+            *)
+                run_status="${COLOR_GRAY}未知${COLOR_RESET}"
+                ;;
+        esac
+        case "$init_sys" in
+            systemd|openrc)
+                if service_is_enabled; then
+                    auto_start="${COLOR_GREEN}已启用${COLOR_RESET}"
+                else
+                    auto_start="${COLOR_GRAY}已禁用${COLOR_RESET}"
+                fi
+                ;;
+            *)
+                auto_start="${COLOR_GRAY}未知${COLOR_RESET}"
+                ;;
+        esac
         if [[ -f "$VERSION_FILE" ]]; then
             software_version=$(cat "$VERSION_FILE" 2>/dev/null || true)
             [[ -n "$software_version" ]] || software_version="未知"
         else
             software_version="未知"
         fi
+        if [[ "$software_version" != "未知" ]]; then
+            kernel_chan=$(channel_name "$(detect_channel "$software_version")")
+        else
+            kernel_chan="未知"
+        fi
     fi
 
+    # 系统运行
     kv "安装状态" "$install_status"
     kv "运行状态" "$run_status"
     kv "开机自启" "$auto_start"
-    kv "当前系统" "${COLOR_GREEN}${distro}${COLOR_RESET}"
-    kv "内核版本" "${COLOR_GREEN}${software_version}${COLOR_RESET}"
-    if [[ -f "$BIN_FILE" && -f "$VERSION_FILE" && "$software_version" != "未知" ]]; then
-        local chan chan_text
-        chan=$(detect_channel "$software_version")
-        chan_text=$(channel_name "$chan")
-        # 与脚本测试版一致：alpha 用黄色提示，stable 用绿色表示当前稳定通道
-        if [[ "$chan" == "alpha" ]]; then
-            kv "内核通道" "${COLOR_YELLOW}${chan_text}${COLOR_RESET}"
+    if [[ "$distro" == "Unknown" || -z "$distro" ]]; then
+        kv "当前系统" "${COLOR_GRAY}未知${COLOR_RESET}"
+    else
+        kv "当前系统" "$distro"
+    fi
+    hr
+
+    # 版本更新：内核通道与脚本通道各自独立，按各自真实通道信息着色。
+    kv "内核版本" "$software_version"
+    if [[ -f "$BIN_FILE" && "$software_version" != "未安装" && "$software_version" != "未知" ]]; then
+        if [[ "$(detect_channel "$software_version")" == "alpha" ]]; then
+            kv "内核通道" "${COLOR_YELLOW}${kernel_chan}${COLOR_RESET}"
         else
-            kv "内核通道" "${COLOR_GREEN}${chan_text}${COLOR_RESET}"
+            kv "内核通道" "${COLOR_GREEN}${kernel_chan}${COLOR_RESET}"
         fi
+    else
+        kv "内核通道" "${COLOR_GRAY}${kernel_chan}${COLOR_RESET}"
     fi
-    # 脚本通道是脚本自身的来源分支，与上面的内核通道互不影响
+    # 脚本版本不在此展示：菜单页头（print_header）已显示一次。
     if [[ "$RELEASE_CHANNEL" == 'beta' ]]; then
-        release_text="${COLOR_YELLOW}$(release_channel_name "$RELEASE_CHANNEL")${COLOR_RESET}"
+        kv "脚本通道" "${COLOR_YELLOW}$(release_channel_name "$RELEASE_CHANNEL")${COLOR_RESET}"
     else
-        release_text="${COLOR_GREEN}$(release_channel_name "$RELEASE_CHANNEL")${COLOR_RESET}"
+        kv "脚本通道" "${COLOR_GREEN}$(release_channel_name "$RELEASE_CHANNEL")${COLOR_RESET}"
     fi
-    kv "脚本通道" "$release_text"
-    kv "本机IPv4" "${COLOR_GREEN}${ipv4}${COLOR_RESET}"
-    # 无 IPv6 时用默认色：绿色是成功色，"无"不是成功状态
-    if [[ -n "${ipv6:-}" ]]; then
-        kv "本机IPv6" "${COLOR_GREEN}${ipv6}${COLOR_RESET}"
+    kv "脚本更新" "$update_time"
+    hr
+
+    # 网络访问
+    if [[ -n "$ipv4" ]]; then
+        kv "本机IPv4" "$ipv4"
     else
-        kv "本机IPv6" "无"
+        kv "本机IPv4" "${COLOR_GRAY}无${COLOR_RESET}"
+    fi
+    if [[ -n "${ipv6:-}" ]]; then
+        kv "本机IPv6" "$ipv6"
+    else
+        kv "本机IPv6" "${COLOR_GRAY}无${COLOR_RESET}"
     fi
     if [[ -f "$CONFIG_FILE" ]]; then
-        kv "面板地址" "${COLOR_GREEN}$(panel_url)${COLOR_RESET}"
+        kv "面板地址" "${COLOR_BLUE}$(panel_url)${COLOR_RESET}"
     else
-        kv "面板地址" "${COLOR_RED}未安装${COLOR_RESET}"
+        kv "面板地址" "${COLOR_GRAY}未安装${COLOR_RESET}"
     fi
-    # 脚本版本不在此展示：菜单页头（print_header）已显示一次，
-    # 此处再显示会与页头同屏重复
-    kv "脚本更新" "${COLOR_GREEN}${update_time}${COLOR_RESET}"
 }
 
 # 执行服务操作并打印结果。
@@ -1145,8 +1185,8 @@ service_action() { # $1=start|stop|restart|enable|disable
         start)   text="启动"         ;;
         stop)    text="停止"         ;;
         restart) text="重启"         ;;
-        enable)  text="设置开机自启" ;;
-        disable) text="取消开机自启" ;;
+        enable)  text="启用开机自启" ;;
+        disable) text="禁用开机自启" ;;
         *) log_error "未知操作：${action}"; return 1 ;;
     esac
 
@@ -2647,7 +2687,8 @@ uninstall_mihomo() {
 # 参数：$1 表示待校验字符串。
 # 返回：合法返回 0，否则返回 1。
 is_semver() {
-    [[ "${1:-}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]
+    # 后缀只允许一段标识符（可含点号），拒绝 -beta-beta 这类重复后缀。
+    [[ "${1:-}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.]*)?$ ]]
 }
 
 # 按 SemVer 优先级比较两个三段式版本号（可带 -beta 等预发布后缀）。
@@ -2727,7 +2768,7 @@ extract_script_version() {
         }
         /^readonly SCRIPT_VERSION=/ {
             declaration_count++
-            if ($0 !~ /^readonly SCRIPT_VERSION="[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?"$/) {
+            if ($0 !~ /^readonly SCRIPT_VERSION="[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.]*)?"$/) {
                 invalid_declaration = 1
                 next
             }
@@ -2959,8 +3000,8 @@ menu() {
         printf '%s%2d%s. %s\n' "$COLOR_GREEN" 5  "$COLOR_RESET" "停止 mihomo"
         printf '%s%2d%s. %s\n' "$COLOR_GREEN" 6  "$COLOR_RESET" "重启 mihomo"
         hr
-        printf '%s%2d%s. %s\n' "$COLOR_GREEN" 7  "$COLOR_RESET" "添加开机自启"
-        printf '%s%2d%s. %s\n' "$COLOR_GREEN" 8  "$COLOR_RESET" "关闭开机自启"
+        printf '%s%2d%s. %s\n' "$COLOR_GREEN" 7  "$COLOR_RESET" "启用开机自启"
+        printf '%s%2d%s. %s\n' "$COLOR_GREEN" 8  "$COLOR_RESET" "禁用开机自启"
         printf '%s%2d%s. %s\n' "$COLOR_GREEN" 9  "$COLOR_RESET" "切换内核通道"
         hr
         printf '%s%2d%s. %s\n' "$COLOR_GREEN" 10 "$COLOR_RESET" "配置管理"
@@ -2971,7 +3012,7 @@ menu() {
         show_status
         hreq
 
-        read_input input "${COLOR_CYAN}请输入上面选项: ${COLOR_RESET}"
+        read_input input "${COLOR_CYAN}请选择操作: ${COLOR_RESET}"
         # 20/30 分别是 10（配置管理）/ 11（查看日志）的快捷别名，保留既有输入习惯
         case "$input" in
             1)  reinstall_mihomo        || true ;;

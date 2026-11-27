@@ -13,7 +13,7 @@
 
 - [ ] 改动只提交到 `beta` 分支，未直接修改 `main`
 - [ ] 已运行 `bash tests/smoke.sh`，全部通过
-- [ ] 版本号已同步更新：文件头 `# ver` 与 `readonly SCRIPT_VERSION` 一致，且不带 `-beta` 后缀（通道由分支承载）
+- [ ] 版本号已同步更新：文件头 `# ver` 与 `readonly SCRIPT_VERSION` 一致；`beta` 分支为 `X.Y.Z-beta`、`main` 分支为 `X.Y.Z`，无重复后缀
 - [ ] 脚本通道机制未被破坏：脚本内没有写死分支名，资源地址仍由 `REPO_RAW` 派生
 - [ ] 已实机验证：安装 → 启动 → 切换节点 → 查看日志 → 卸载
 - [ ] 新增/变更的路径、依赖、命令已同步到 `README.md`

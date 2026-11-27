@@ -6,9 +6,9 @@
 #          不安装、不改系统、不需要 root，本地与 CI 共用同一份
 # usage  : bash tests/smoke.sh
 # 分支模型：
-#   main = 正式版，beta = 测试版；两个分支目录结构、文件名称完全一致，
-#   脚本都在仓库根目录，通道只由运行期参数与 channel.txt 决定。
-#   因此本脚本不区分分支，同一份检查在两个分支都必须通过。
+#   main = 正式版（版本号 X.Y.Z），beta = 测试版（版本号 X.Y.Z-beta）；
+#   两个分支目录结构、文件名称完全一致，脚本都在仓库根目录，
+#   通道只由运行期参数与 channel.txt 决定。除版本号后缀外，两个分支跑同一份检查。
 # --------------------------------------------------
 
 # 必须用 bash 运行：dash/sh 不支持 [[ ]] 与数组。
@@ -95,6 +95,11 @@ done
 
 # ---------- 5. 版本号 ----------
 title '5/8 版本号一致性'
+# 版本规范：main = X.Y.Z；beta = X.Y.Z-beta；重复后缀一律拒绝。
+BRANCH_NAME="${GITHUB_REF_NAME:-}"
+if [[ -z "$BRANCH_NAME" ]] && git -C "$ROOT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    BRANCH_NAME=$(git -C "$ROOT_DIR" branch --show-current 2>/dev/null || true)
+fi
 EXPECT_VERSION=""
 for f in "${FILES[@]}"; do
     [[ -f "${ROOT_DIR}/${f}" ]] || continue
@@ -107,11 +112,22 @@ for f in "${FILES[@]}"; do
         bad "${f} 头部 ${header} ≠ 常量 ${const}"
         continue
     fi
-    # 通道由分支承载，版本号不再带 -beta：合入 main 时无需改代码
-    if [[ "$const" == *-beta ]]; then
-        bad "${f} 版本 '${const}' 仍带 -beta 后缀（通道已改由分支承载）"
+    if [[ "$const" == *-beta-beta* ]]; then
+        bad "${f} 版本 '${const}' 含重复 -beta 后缀"
         continue
     fi
+    if [[ ! "$const" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.]*)?$ ]]; then
+        bad "${f} 版本 '${const}' 格式非法"
+        continue
+    fi
+    case "$BRANCH_NAME" in
+        beta)
+            [[ "$const" == *-beta ]] || bad "${f} beta 分支版本 '${const}' 缺少 -beta 后缀"
+            ;;
+        main)
+            [[ "$const" != *-beta ]] || bad "${f} main 分支版本 '${const}' 仍带 -beta 后缀"
+            ;;
+    esac
     ok "${f} 版本一致：${const}"
     if [[ -z "$EXPECT_VERSION" ]]; then
         EXPECT_VERSION="$const"
@@ -119,6 +135,36 @@ for f in "${FILES[@]}"; do
         bad "两个脚本版本不一致：${EXPECT_VERSION} vs ${const}"
     fi
 done
+
+# 版本比较逻辑实际执行：正式版高于预发布版，重复后缀被拒绝。
+VERIFY_DIR="$(mktemp -d -p . 2>/dev/null || true)"
+if [[ -n "$VERIFY_DIR" && -d "$VERIFY_DIR" ]]; then
+    sed -n '/^is_semver()/,/^}/p; /^compare_semver()/,/^}/p' "${ROOT_DIR}/mihomo.sh" > "${VERIFY_DIR}/semver.sh"
+    semver_check() { bash -c 'source "$1"; shift; eval "$*"' _ "${VERIFY_DIR}/semver.sh" "$1" 2>/dev/null; }
+    if [[ "$(semver_check 'compare_semver 2.6.0 2.6.0-beta')" == "1" ]]; then
+        ok '正式版 2.6.0 高于预发布版 2.6.0-beta'
+    else
+        bad '版本比较未正确区分正式版与预发布版'
+    fi
+    if [[ "$(semver_check 'compare_semver 2.6.0-beta 2.6.0')" == "-1" ]]; then
+        ok '预发布版 2.6.0-beta 低于正式版 2.6.0'
+    else
+        bad '预发布版降级判断异常'
+    fi
+    if [[ "$(semver_check 'compare_semver 2.6.0-beta 2.6.0-beta')" == "0" ]]; then
+        ok '相同版本比较结果一致'
+    else
+        bad '相同版本比较异常'
+    fi
+    if semver_check 'compare_semver 2.6.0-beta-beta 2.6.0'; then
+        bad '重复 -beta 后缀未被版本校验拒绝'
+    else
+        ok '重复 -beta 后缀被版本校验拒绝'
+    fi
+    rm -rf -- "$VERIFY_DIR"
+else
+    warn '无法创建临时目录，跳过版本比较检查'
+fi
 
 # ---------- 6. 通道机制 ----------
 title '6/8 通道机制（无硬编码分支）'
