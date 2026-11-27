@@ -5,7 +5,7 @@
 # desc   : mihomo 内核与订阅配置的交互式管理脚本
 # date   : 2026-11-27 16:33:04
 # author : ChatGPT JK789
-# ver    : 2.6.1-beta
+# ver    : 2.6.1
 # --------------------------------------------------
 
 # 与 install.sh 共用同名函数，改动需同步两份；
@@ -38,7 +38,7 @@ if (( EUID != 0 )); then
 fi
 
 # 声明当前脚本版本，必须与文件头 ver 完全一致。
-readonly SCRIPT_VERSION="2.6.1-beta"
+readonly SCRIPT_VERSION="2.6.1"
 
 # 收紧新建文件的默认权限：配置、日志和临时文件只允许属主访问。
 umask 077
