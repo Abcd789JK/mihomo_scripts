@@ -213,6 +213,7 @@ else
                 RELEASE_CHANNEL=""; REPO_RAW=""; CONFIG_URL=""; SHELL_URL=""; INSTALL_URL=""
                 SERVICE_URL_SYSTEMD=""; SERVICE_URL_OPENRC=""
                 log_warn() { printf "WARN:%s\n" "$*" >&2; }
+                log_error() { printf "ERROR:%s\n" "$*" >&2; }
                 source "$1"
                 shift 2
                 eval "$*"
@@ -243,13 +244,15 @@ else
             *) bad "${f} 缺记录时未正确回退（${out//$'\n'/ }）" ;;
         esac
 
-        # 内容非法 → main + 告警
+        # 内容非法 → 拒绝继续（不静默回退到任何通道）
         printf 'weird\n' > "${WORK_DIR}/channel.txt"
-        out="$(ch_run 'read_release_channel; printf "%s" "$RELEASE_CHANNEL"' 2>&1)"
-        case "$out" in
-            *WARN*main*) ok "${f} 非法记录时回退 main 并告警" ;;
-            *) bad "${f} 非法记录时未正确回退（${out//$'\n'/ }）" ;;
-        esac
+        if out="$(ch_run 'read_release_channel' 2>&1)"; then
+            bad "${f} 非法记录时仍继续执行（应拒绝，避免静默切通道）"
+        elif [[ "$out" == *非法* ]]; then
+            ok "${f} 非法记录时拒绝继续并说明原因"
+        else
+            bad "${f} 非法记录时报错信息不明确（${out//$'\n'/ }）"
+        fi
 
         mv -f "${WORK_DIR}/channel.txt" "${WORK_DIR}/channel.bak2" 2>/dev/null || true
     done

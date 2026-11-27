@@ -3,7 +3,7 @@
 # --------------------------------------------------
 # name   : install.sh
 # desc   : 一键安装 mihomo 内核、系统服务与管理面板并生成订阅配置
-# date   : 2026-11-27 16:13:59
+# date   : 2026-11-27 16:33:04
 # author : ChatGPT JK789
 # ver    : 2.6.0
 # --------------------------------------------------
@@ -370,8 +370,9 @@ apply_release_channel() { # $1=通道
     SHELL_URL="${REPO_RAW}/mihomo.sh"
 }
 
-# 读取已保存的发布通道；文件缺失或内容非法时回退 main 并说明原因。
-# 旧版本没有该文件，回退 main 保证不会静默把正式版用户切到测试版。
+# 读取已保存的发布通道。
+# - 文件缺失：旧版本没有该记录，按 main 处理并提示，属于安全迁移（不会跳到测试版）
+# - 文件存在但内容非法：拒绝猜测并返回 1，避免把测试版机器静默拉回正式版
 read_release_channel() {
     local saved=""
     if [[ -f "$RELEASE_FILE" ]]; then
@@ -383,13 +384,17 @@ read_release_channel() {
         return 0
     fi
 
-    apply_release_channel "$RELEASE_DEFAULT"
-    if [[ -n "$saved" ]]; then
-        log_warn "发布通道记录无效（${saved}），已按$(release_channel_name "$RELEASE_DEFAULT")处理"
-    else
+    if [[ -z "$saved" ]]; then
+        apply_release_channel "$RELEASE_DEFAULT"
         log_warn "未检测到发布通道记录，已按$(release_channel_name "$RELEASE_DEFAULT")处理"
+        return 0
     fi
-    return 0
+
+    # 记录存在但非法：任何自动选择都可能把测试版机器切到正式版（或反之），
+    # 因此停下来交给用户确认，不做静默回退。
+    log_error "发布通道记录非法：${saved}（应为 main 或 beta）"
+    log_error "文件：${RELEASE_FILE}"
+    return 1
 }
 
 # 保存发布通道；写入失败不中断主流程（下次运行仍回退 main），但必须明确告警。
@@ -2284,7 +2289,8 @@ main() {
     if [[ -n "$release_channel" ]]; then
         apply_release_channel "$release_channel"
     elif [[ -f "$RELEASE_FILE" ]]; then
-        read_release_channel
+        # 记录非法时不猜测：显式指定通道即可覆盖，避免把机器切到另一条通道
+        read_release_channel || die "发布通道记录非法，请执行 bash install.sh main（或 beta）重新指定"
     else
         apply_release_channel "$RELEASE_DEFAULT"
     fi

@@ -120,7 +120,12 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/v2.
 2. 没给参数但已有 `channel.txt` → 沿用（重装不会把测试版机器带回正式版）；
 3. 两者都没有（旧版本用户）→ 按正式版 `main` 处理，并在屏幕上明确提示。
 
-`channel.txt` 内容非法时同样回退 `main` 并告警，**不会静默切到测试版**。
+`channel.txt` 内容非法（手工改坏或写入中断）时**直接报错停止，不做任何猜测**——因为此时无论选哪条通道，都可能把测试版机器切到正式版，反之亦然。修复方式二选一：
+
+```bash
+printf 'main\n' > /root/mihomo/channel.txt      # 修正记录（把 main 换成 beta 即测试版）
+bash install.sh main                            # 或用参数重新指定通道
+```
 
 **测试版风险提示**
 
@@ -185,17 +190,29 @@ git push origin beta
 
 **发布正式版（合并 `beta` → `main`）**
 
+常规发布就是快进：
+
 ```bash
 git switch beta && bash tests/smoke.sh && git push origin beta
+
 git switch main
-git merge --ff-only beta       # 优先快进；有冲突即停止发布并说明原因
+git merge --ff-only beta         # 快进失败即停止，说明冲突原因，不要在 main 上手工合并
 git tag -a v2.6.0 -m "release: v2.6.0"
 git push origin main && git push origin v2.6.0
-git switch beta                # 发布后回到 beta 继续开发
+git switch beta                  # 发布后回到 beta 继续开发
 ```
 
+**2.6.0 是首次结构切换，两条历史已分叉**：`main` 上那个「从 main 删除 mihomo_beta」的提交（`a427505`）在新结构下已无意义，而 `beta` 又不在它的下游，所以第一次不能快进。首次按下面做一次对齐，之后恢复上面的快进流程：
+
+```bash
+git switch beta                  # main 不能是当前分支
+git branch -f main beta          # 以 beta 为准把 main 指到同一提交
+git push origin main             # origin/main 仍停在 Initial commit，属快进推送，无需强推
+```
+
+> 对齐完成前，`main` 分支上的 `install.sh` 不存在，README 里的正式版安装命令会 404；这是过渡期的正常状态，正式版用户请等 2.6.0 发布后再用 `main` 的地址，或安装 `beta` 并显式指定通道。
+
 - 快进合并意味着 `main` 得到的内容与 `beta` 完全一致，**不需要改任何分支变量或下载地址**；
-- 有冲突时 `--ff-only` 会直接拒绝，此时停止发布、说明冲突点，不要在 `main` 上手工合并；
 - 禁止 `push --force` 覆盖历史；
 - 回滚：`git revert <发布提交SHA>` 后发新 PATCH 版本，不要重推同名 tag。
 
