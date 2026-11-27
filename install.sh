@@ -353,8 +353,8 @@ valid_release_channel() { # $1=通道
 # 脚本通道 → 界面显示名（中文 + 英文代号）。
 release_channel_name() { # $1=通道
     case "${1:-}" in
-        beta) printf '测试版（Beta）' ;;
-        *)    printf '正式版（Main）' ;;
+        beta) printf '测试版（beta）' ;;
+        *)    printf '正式版（main）' ;;
     esac
 }
 
@@ -404,7 +404,7 @@ save_release_channel() {
     if ! printf '%s\n' "$RELEASE_CHANNEL" > "$tmp" 2>/dev/null \
         || ! mv -f -- "$tmp" "$RELEASE_FILE" 2>/dev/null; then
         rm -f -- "$tmp" 2>/dev/null || true
-        log_warn "脚本通道保存失败：${RELEASE_FILE}，下次运行将按正式版（Main）处理"
+        log_warn "脚本通道保存失败：${RELEASE_FILE}，下次运行将按正式版（main）处理"
         return 1
     fi
     chmod 600 "$RELEASE_FILE" 2>/dev/null || true
@@ -993,7 +993,7 @@ valid_version() {
 
 # 内核通道 → 界面显示名（中文 + 英文代号）。
 channel_name() { # $1=通道 → 显示名
-    [[ "$1" == "alpha" ]] && printf '测试版（Alpha）' || printf '正式版（Stable）'
+    [[ "$1" == "alpha" ]] && printf '测试版（alpha）' || printf '正式版（stable）'
 }
 
 # 获取测试版版本号。
@@ -2110,7 +2110,7 @@ install_mihomo() {
     if save_release_channel; then
         log_success "脚本通道：$(release_channel_name "$RELEASE_CHANNEL")"
     else
-        log_warn "脚本通道未能保存，下次运行将按正式版（Main）处理"
+        log_warn "脚本通道未能保存，下次运行将按正式版（main）处理"
     fi
 
     step "写入配置"
@@ -2169,15 +2169,15 @@ usage() {
 mihomo 一键安装脚本 v${SCRIPT_VERSION}
 
 脚本通道（决定安装、更新、重装时从哪个分支取脚本与配套文件）:
-  main  正式版（Main，默认）
-  beta  测试版（Beta）
+  main  正式版（main，默认）
+  beta  测试版（beta）
 
 安装方式：
 
-  正式版脚本（Main）：
+  正式版脚本（main）：
     bash <(curl -fsSL ${REPO_URL}/main/install.sh) main
 
-  测试版脚本（Beta）：
+  测试版脚本（beta）：
     bash <(curl -fsSL ${REPO_URL}/beta/install.sh) beta
 
   也可以先下载再执行（curl / wget 有其一即可）：
@@ -2195,14 +2195,14 @@ mihomo 一键安装脚本 v${SCRIPT_VERSION}
 选项:
   -h, --help           显示帮助
   -v, --version        显示版本
-  --channel stable     安装正式版内核（Stable，如 v1.19.32）
-  --channel alpha      安装测试版内核（Alpha，如 alpha-94b13ae）
+  --channel stable     安装正式版内核（stable，如 v1.19.32）
+  --channel alpha      安装测试版内核（alpha，如 alpha-94b13ae）
 
 说明:
   位置参数是脚本通道，省略时沿用已保存的通道，没有记录则用正式版 main。
   脚本通道只影响脚本与配套文件从哪个分支获取；--channel 决定安装哪个 mihomo
   内核版本，两者互不影响。
-  不指定 --channel 时会在安装前询问，默认正式版内核（Stable）。
+  不指定 --channel 时会在安装前询问，默认正式版内核（stable）。
   安装成功后自动删除本次运行的 install.sh，避免残留；安装失败时保留以便重试。
   支持 apt / dnf(yum) / pacman / apk / zypper 系发行版：
     Debian、Ubuntu 及其衍生版（Mint、Kali、Armbian 等）
@@ -2275,8 +2275,8 @@ choose_channel() {
     printf '\n'
     hr
     printf '%s\n' "${COLOR_CYAN}请选择要安装的内核通道${COLOR_RESET}"
-    printf '%s\n' "${COLOR_GREEN}1${COLOR_RESET}. 正式版 Stable（默认，如 v1.19.32）"
-    printf '%s\n' "${COLOR_GREEN}2${COLOR_RESET}. 测试版 Alpha（如 alpha-94b13ae）"
+    printf '%s\n' "${COLOR_GREEN}1${COLOR_RESET}. 正式版 stable（默认，如 v1.19.32）"
+    printf '%s\n' "${COLOR_GREEN}2${COLOR_RESET}. 测试版 alpha（如 alpha-94b13ae）"
     hr
 
     local ans=""

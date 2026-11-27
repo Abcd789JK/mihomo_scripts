@@ -348,8 +348,8 @@ valid_release_channel() { # $1=通道
 # 脚本通道 → 界面显示名（中文 + 英文代号）。
 release_channel_name() { # $1=通道
     case "${1:-}" in
-        beta) printf '测试版（Beta）' ;;
-        *)    printf '正式版（Main）' ;;
+        beta) printf '测试版（beta）' ;;
+        *)    printf '正式版（main）' ;;
     esac
 }
 
@@ -398,7 +398,7 @@ save_release_channel() {
     if ! printf '%s\n' "$RELEASE_CHANNEL" > "$tmp" 2>/dev/null \
         || ! mv -f -- "$tmp" "$RELEASE_FILE" 2>/dev/null; then
         rm -f -- "$tmp" 2>/dev/null || true
-        log_warn "脚本通道保存失败：${RELEASE_FILE}，下次运行将按正式版（Main）处理"
+        log_warn "脚本通道保存失败：${RELEASE_FILE}，下次运行将按正式版（main）处理"
         return 1
     fi
     chmod 600 "$RELEASE_FILE" 2>/dev/null || true
@@ -851,7 +851,7 @@ detect_channel() { # $1=版本号
 
 # 内核通道 → 界面显示名（中文 + 英文代号）。
 channel_name() { # $1=通道 → 显示名
-    [[ "$1" == "alpha" ]] && printf '测试版（Alpha）' || printf '正式版（Stable）'
+    [[ "$1" == "alpha" ]] && printf '测试版（alpha）' || printf '正式版（stable）'
 }
 
 # 获取测试版版本号。
@@ -1104,9 +1104,15 @@ show_status() {
     kv "当前系统" "${COLOR_GREEN}${distro}${COLOR_RESET}"
     kv "内核版本" "${COLOR_GREEN}${software_version}${COLOR_RESET}"
     if [[ -f "$BIN_FILE" && -f "$VERSION_FILE" && "$software_version" != "未知" ]]; then
-        local chan
-        chan=$(channel_name "$(detect_channel "$software_version")")
-        kv "内核通道" "${COLOR_GREEN}${chan}${COLOR_RESET}"
+        local chan chan_text
+        chan=$(detect_channel "$software_version")
+        chan_text=$(channel_name "$chan")
+        # 与脚本测试版一致：alpha 用黄色提示，stable 用绿色表示当前稳定通道
+        if [[ "$chan" == "alpha" ]]; then
+            kv "内核通道" "${COLOR_YELLOW}${chan_text}${COLOR_RESET}"
+        else
+            kv "内核通道" "${COLOR_GREEN}${chan_text}${COLOR_RESET}"
+        fi
     fi
     # 脚本通道是脚本自身的来源分支，与上面的内核通道互不影响
     if [[ "$RELEASE_CHANNEL" == 'beta' ]]; then
@@ -1129,7 +1135,7 @@ show_status() {
     fi
     # 脚本版本不在此展示：菜单页头（print_header）已显示一次，
     # 此处再显示会与页头同屏重复
-    kv "更新时间" "${COLOR_GREEN}${update_time}${COLOR_RESET}"
+    kv "脚本更新" "${COLOR_GREEN}${update_time}${COLOR_RESET}"
 }
 
 # 执行服务操作并打印结果。
@@ -2532,8 +2538,8 @@ switch_version() {
     hreq
     printf '当前内核版本: %s，%s\n' "$current" "$(channel_name "$channel")"
     hr
-    printf '%s\n' "${COLOR_GREEN}1${COLOR_RESET}. 正式版（Stable，如 v1.19.32）"
-    printf '%s\n' "${COLOR_GREEN}2${COLOR_RESET}. 测试版（Alpha，如 alpha-94b13ae）"
+    printf '%s\n' "${COLOR_GREEN}1${COLOR_RESET}. 正式版（stable，如 v1.19.32）"
+    printf '%s\n' "${COLOR_GREEN}2${COLOR_RESET}. 测试版（alpha，如 alpha-94b13ae）"
     hr
 
     read_input choice "${COLOR_CYAN}请输入选项 (1/2): ${COLOR_RESET}"
