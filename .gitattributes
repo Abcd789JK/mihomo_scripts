@@ -16,6 +16,14 @@ mihomo_beta/mihomo.sh    text eol=lf
 tools/sync-mihomo.sh     text eol=lf
 tests/smoke.sh           text eol=lf
 
+# 根目录资源：会被脚本下载到 Linux 后直接使用。
+# mihomo.service 若带 CRLF，systemd 会把 \r 读进路径导致启动失败。
+mihomo.yaml     text eol=lf
+mihomo.service  text eol=lf
+mihomo.openrc   text eol=lf
+*.service       text eol=lf
+*.openrc        text eol=lf
+
 # Windows 侧脚本（若后续新增 .bat/.cmd/.ps1，保持 CRLF）
 *.bat   text eol=crlf
 *.cmd   text eol=crlf

@@ -17,6 +17,7 @@
 | `REPO_RAW` | `https://raw.githubusercontent.com/Abcd789JK/Tools/refs/heads/main` | `https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/refs/heads/main` | 所有原始文件地址的前缀 |
 | `SHELL_REPO` | `Abcd789JK/Tools` | `Abcd789JK/mihomo_scripts` | 用于查询 `commits/main` 取 pin 住的 commit |
 | 路径前缀 | `/Script/mihomo_beta` | `/mihomo_beta` | 目录从 `Tools/Script/` 提到了仓库根 |
+| 资源路径 | `/Config/mihomo.yaml`、`/Service/mihomo.*` | `/mihomo.yaml`、`/mihomo.service`、`/mihomo.openrc` | 三份资源提到仓库根目录，对应 `CONFIG_URL` / `SERVICE_URL_*` |
 | jsDelivr 镜像 | `gh/Abcd789JK/Tools@main/Script/mihomo_beta` | `gh/Abcd789JK/mihomo_scripts@main/mihomo_beta` | 由上面两条规则联动得到 |
 
 **匹配处数**（已按 2.5.3-beta 实测）：
@@ -96,7 +97,8 @@ grep -rn 'Script/mihomo' --exclude-dir=.git .
 
 ## 五、注意事项
 
-1. **不要手改 `mihomo/`**：替换后必须跑 `sync-mihomo.sh` 重新生成。手改会让 `smoke.sh` 第 5 项报"与实际生成结果不一致"。
+0. **三份根目录资源必须在两个分支都存在**：`install.sh` 按 `REPO_RAW`（各分支自己的 ref）下载 `mihomo.yaml` / `mihomo.service` / `mihomo.openrc`，只放一个分支会让另一通道安装失败。`smoke.sh` 与 `sync-mihomo.sh` 都会校验它们存在。
+1. **不要手改 `mihomo/`**：替换后必须跑 `sync-mihomo.sh` 重新生成。手改会让 `smoke.sh` 第 7 项报"与实际生成结果不一致"。
 2. **旧仓库不要立刻删**：先让新仓库跑通安装，再在旧仓库 README 顶部放迁移公告并归档，避免已发布链接瞬间失效。
 3. **`switch 正式版/测试版` 功能依赖两个地址都可达**：迁移期间如果只推了 `mihomo_beta/` 而没推 `mihomo/`，切换会 404。
 4. **jsDelivr 有缓存**：镜像地址首次访问可能仍返回旧内容，验证时以 `raw.githubusercontent.com` 为准。

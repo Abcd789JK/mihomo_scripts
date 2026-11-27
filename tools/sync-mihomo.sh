@@ -8,8 +8,9 @@
 # --------------------------------------------------
 
 # 唯一源是 mihomo_beta/，本脚本把它"翻译"成正式版 mihomo/。
-# 两个通道的差异仅允许是：版本号（去掉 -beta 后缀）与仓库路径（去掉 _beta）。
-# 维护流程：只改 beta → 跑本脚本 → 校验通过后才覆盖正式版。
+# 两个通道的差异仅允许三处：版本号（去掉 -beta）、通道目录（mihomo_beta→mihomo）、
+# 通道分支（REPO_BRANCH beta→main）。
+# 维护流程：只在 beta 分支改源 → 跑本脚本 → 校验通过后才覆盖正式版。
 
 # 必须用 bash 运行：dash/sh 不支持 [[ ]] 与数组。
 if [ -z "${BASH_VERSION:-}" ]; then
@@ -55,22 +56,24 @@ resolve_versions() {
     log_info "[INFO] 源版本 ${SRC_VERSION} → 正式版 ${STABLE_VERSION}"
 }
 
-# 生成候选文件到临时目录：只替换版本号与仓库路径两处。
+# 生成候选文件到临时目录：只替换版本号、通道目录与通道分支三处。
 generate_candidates() {
     local f
     for f in "${FILES[@]}"; do
         [[ -f "${SRC_DIR}/${f}" ]] || die "缺少源文件 ${SRC_DIR}/${f}"
         sed -e "s/${SRC_VERSION}/${STABLE_VERSION}/g" \
             -e 's#mihomo_beta#mihomo#g' \
+            -e 's#REPO_BRANCH="beta"#REPO_BRANCH="main"#g' \
             "${SRC_DIR}/${f}" > "${TMP_DIR}/${f}"
     done
 }
 
-# 把两个文件里的版本号与路径归一化，用于反向比对。
+# 把两个文件里的版本号、通道目录与通道分支归一化，用于反向比对。
 normalize() { # $1=文件
     sed -e 's/[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*-beta/VER/g' \
         -e 's/[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*/VER/g' \
         -e 's#mihomo_beta#mihomo#g' \
+        -e 's#REPO_BRANCH="[a-zA-Z]*"#REPO_BRANCH="BR"#g' \
         "$1"
 }
 
@@ -93,6 +96,12 @@ verify_candidates() {
         # 正式版不得残留 beta 路径。
         grep -n 'mihomo_beta' "${TMP_DIR}/${f}" && die "${f} 残留 mihomo_beta 路径"
 
+        # 正式版必须锁定 main 分支：main 上不放 mihomo_beta/，
+        # 若 REPO_BRANCH 仍是 beta，正式版会去 beta 分支自更新。
+        grep -q 'readonly REPO_BRANCH="main"' "${TMP_DIR}/${f}" \
+            || die "${f} 未锁定 REPO_BRANCH=main"
+        grep -n 'refs/heads/beta' "${TMP_DIR}/${f}" && die "${f} 残留 beta 分支地址"
+
         # 反向校验：归一化后必须与源完全一致，确保没有任何额外改动。
         if ! diff_out="$(diff -u <(normalize "${SRC_DIR}/${f}") <(normalize "${TMP_DIR}/${f}") 2>&1)"; then
             printf '%s\n' "$diff_out" >&2
@@ -111,8 +120,15 @@ install_candidates() {
 }
 
 main() {
-    [[ -d "$SRC_DIR" ]] || die "缺少源目录 ${SRC_DIR}"
+    [[ -d "$SRC_DIR" ]] || die "缺少源目录 ${SRC_DIR}：生成只在 beta 分支进行（main 不保留 mihomo_beta/）"
     [[ -d "$DST_DIR" ]] || die "缺少目标目录 ${DST_DIR}"
+
+    # 安装器会从仓库根目录下载这三份资源（CONFIG_URL / SERVICE_URL_*），
+    # 缺失会让 install.sh 在配置下载阶段直接失败，故在此拦住。
+    local asset
+    for asset in mihomo.yaml mihomo.service mihomo.openrc; do
+        [[ -f "${ROOT_DIR}/${asset}" ]] || die "缺少根目录资源 ${asset}"
+    done
 
     TMP_DIR="$(mktemp -d "${ROOT_DIR}/.sync-mihomo.XXXXXX")" || die "无法创建临时目录"
 

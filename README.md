@@ -25,33 +25,36 @@
 
 ## 二、目录结构
 
+两个分支各放自己那一份，**不共用目录**：
+
 ```text
+# beta 分支（测试版，日常开发在这里）
 mihomo_scripts/
-├── mihomo_beta/                # ★ beta 通道：唯一手工维护的源码
-│   ├── install.sh              #   安装器（版本号含 -beta 后缀）
-│   └── mihomo.sh               #   管理菜单
-├── mihomo/                     # 稳定版通道：由 tools/sync-mihomo.sh 生成
-│   ├── install.sh              #   请勿手工修改，会被下次生成覆盖
-│   └── mihomo.sh
-├── tools/
-│   └── sync-mihomo.sh          # beta → 稳定版的生成器（唯一发布出口）
-├── tests/
-│   └── smoke.sh                # 静态自检，无需 root，CI 与本地同款
-├── docs/
-│   └── migration.md            # 从旧仓库迁移的路径替换清单
-├── .github/
-│   ├── workflows/ci.yml        # 语法 / 行尾 / 版本 / 生成一致性
-│   ├── ISSUE_TEMPLATE/bug_report.yml
-│   └── pull_request_template.md
-├── .gitattributes              # 强制 LF，标记生成物
-├── .editorconfig
-├── .gitignore                  # 凭据、订阅、日志、临时文件
-├── CHANGELOG.md
-├── LICENSE
-└── README.md
+├── mihomo_beta/            # ★ 唯一手工维护的源
+│   ├── install.sh          #   安装器（版本号含 -beta 后缀）
+│   └── mihomo.sh           #   管理菜单
+├── mihomo/                 # 由 tools/sync-mihomo.sh 生成，供发布前预览
+├── mihomo.yaml             # 默认配置（脚本从仓库根目录下载）
+├── mihomo.service          # systemd 单元
+├── mihomo.openrc           # OpenRC 服务脚本
+├── tools/sync-mihomo.sh    # beta → 正式版的生成器（五重校验）
+├── tests/smoke.sh          # 静态自检，按分支自动切换检查项
+├── docs/migration.md
+└── .github/  CHANGELOG.md  LICENSE  README.md  .gitattributes  .gitignore
+
+# main 分支（正式版，只放发布产物）
+mihomo_scripts/
+├── mihomo/                 # 正式版脚本（由 beta 晋升，勿手改）
+├── mihomo.yaml  mihomo.service  mihomo.openrc
+├── tools/  tests/  docs/  .github/
+└── 没有 mihomo_beta/
 ```
 
-**唯一维护入口是 `mihomo_beta/`**。`mihomo/` 是构建产物，改动会在下次 `sync-mihomo.sh` 运行时被判为"预期外差异"并拒绝覆盖——这是设计上的防呆，不是 bug。
+**`main` 上不存在 `mihomo_beta/`**，所以：
+
+- 生成动作只在 `beta` 分支执行（`sync-mihomo.sh` 需要同时看到源与目标目录）；
+- `main` 只接收生成结果，`tools/sync-mihomo.sh` 在 `main` 上会主动拒绝运行；
+- `tests/smoke.sh` 靠 `mihomo_beta/` 是否存在判断当前分支，自动切换检查项，两个分支跑同一份脚本。
 
 ---
 
@@ -139,13 +142,16 @@ mihomo
 
 ## 五、双通道维护流程
 
-这是本仓库最重要的一条纪律：**永远只改 `mihomo_beta/`**。
+这是本仓库最重要的一条纪律：**永远只改 `mihomo_beta/`，且只在 `beta` 分支改**。
 
 ```bash
+# 0. 确认在 beta 分支
+git switch beta
+
 # 1. 修改源码（版本号必须带 -beta 后缀）
 vim mihomo_beta/mihomo.sh
 
-# 2. 生成稳定版：自动去掉 -beta 后缀、替换仓库路径
+# 2. 生成正式版：去掉 -beta 后缀、替换通道目录、把自更新锁定到 main
 bash tools/sync-mihomo.sh
 
 # 3. 静态自检（CI 同款，无需 root）
@@ -153,20 +159,21 @@ bash tests/smoke.sh
 
 # 4. 实机验证：安装 → 启动 → 切换节点 → 查看日志 → 卸载
 
-# 5. 推送到 beta 分支（发布时再以 PR 合入 main）
+# 5. 推送到 beta 分支（发布时再晋升到 main，见下节）
 git add -A && git commit -m "feat(mihomo): ..."
 git push origin beta
 ```
 
-`sync-mihomo.sh` 在覆盖稳定版之前会依次校验：
+`sync-mihomo.sh` 在覆盖正式版之前会依次校验：
 
-1. `bash -n` 语法正确；
-2. 文件为 LF 行尾（无 `\r`）；
-3. 文件头 `# ver` 与 `readonly SCRIPT_VERSION` 完全一致；
-4. 稳定版无 `mihomo_beta` 路径残留；
-5. 归一化版本号与路径后，与 beta 源**逐字节一致**（防止夹带手工改动）。
+1. 根目录三份资源存在（`mihomo.yaml` / `mihomo.service` / `mihomo.openrc`）；
+2. `bash -n` 语法正确；
+3. 文件为 LF 行尾（无 `\r`）；
+4. 文件头 `# ver` 与 `readonly SCRIPT_VERSION` 完全一致；
+5. 正式版无 `mihomo_beta` 路径残留，且 `REPO_BRANCH` 已改写为 `main`；
+6. 归一化版本号、目录与分支后，与 beta 源**逐字节一致**（防止夹带手工改动）。
 
-任一项失败即中止，稳定版保持原样，不会出现"生成了一半"的状态。
+任一项失败即中止，正式版保持原样，不会出现"生成了一半"的状态。
 
 **版本号规则**
 
@@ -181,44 +188,51 @@ git push origin beta
 
 ## 六、分支与发布
 
-**`main` = 正式版，`beta` = 测试版。** 两条都是长期分支，通道身份由分支决定：
+**`main` = 正式版，`beta` = 测试版。** 两条长期分支各自持有本通道的脚本，不共用目录：
 
-| 分支 | 通道 | 内容 | 规则 |
+| 分支 | 通道 | 持有内容 | 规则 |
 |---|---|---|---|
-| `main` | 正式版 | 对外发布。`mihomo/` 为当前稳定版，`mihomo_beta/` 为最近一次晋升的快照 | 禁止直推，只接受来自 `beta` 或 `hotfix/*` 的 PR |
-| `beta` | 测试版 | 日常开发与实机验证的主战场，改动落在 `mihomo_beta/` | 允许直推；合并 PR 前必须跑通 `smoke.sh` |
-| `feature/<slug>` `fix/<slug>` | 实验 | 单个功能或修复，从 `beta` 拉出 | 合并后自动删除 |
-| `hotfix/<slug>` | 应急 | 从 `main` 拉出，修完**同时**合回 `main` 与 `beta` | 合并后自动删除 |
+| `main` | 正式版 | `mihomo/` + 三份根目录资源；**无 `mihomo_beta/`** | 禁止直推，只接受发布提交与 `hotfix` PR |
+| `beta` | 测试版 | `mihomo_beta/`（源）+ `mihomo/`（生成预览）+ 资源 | 允许直推；提交前跑 `smoke.sh` |
+| `feature/<slug>` `fix/<slug>` | 实验 | 从 `beta` 拉出 | 合并后自动删除 |
+| `hotfix/<slug>` | 应急 | 仍从 `beta` 改源，走同一条晋升路径 | 合并后自动删除 |
 
-**分支与目录的对应关系**（两套概念不要混）：
-
-- 分支管"这条线在做哪个通道"，目录管"脚本从哪个路径取"。
-- 用户下载：正式版取 `main/mihomo/`，测试版取 `beta/mihomo_beta/`。
-- 脚本自更新与重装**统一从 `main` 的 `mihomo_beta/` 拉取**（`SHELL_URL` / `INSTALL_URL` 写死在 `REPO_RAW` 上），所以 `main` 上必须保留 `mihomo_beta/`，不能只留 `mihomo/`。
-
-**发布流程（beta → main）**
+**通道地址由 `REPO_BRANCH` 常量决定**
 
 ```bash
-# 1. 在 beta 上完成开发与实机验证
-git switch beta && bash tests/smoke.sh
+# beta 分支上的源文件
+readonly REPO_BRANCH="beta"
+readonly REPO_RAW="https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/refs/heads/${REPO_BRANCH}"
 
-# 2. 开 PR：beta → main，squash merge
-#    合并后 main 上的 mihomo_beta/ 即为新版本源
-
-# 3. 在 main 上重新生成稳定版并自检
-git switch main && git pull
-bash tools/sync-mihomo.sh && bash tests/smoke.sh
-
-# 4. 打 tag 发布（手动推送）
-git tag -a v2.5.3 -m "release: v2.5.3"
-git push origin v2.5.3
+# main 分支上的正式版（sync 自动改写，无需手改）
+readonly REPO_BRANCH="main"
 ```
 
-- 第 3 步不能省：squash 只搬运源码，`mihomo/` 必须由 `main` 上的 `mihomo_beta/` 现场生成，否则 CI 的生成物一致性检查会失败。
-- `main` 上用 **squash merge**，一个提交对应一次发布，回滚只需 revert 一个 SHA。
+自更新、重装、pinned commit 查询都跟着这个常量走，因此 `main` 不必为了自更新而保留 `mihomo_beta/`——这是"main 上不放 beta 目录"能成立的前提。
+
+**发布流程：把 `mihomo/` 晋升到 main**
+
+```bash
+# 1. beta 上验证通过并推送
+git switch beta && bash tests/smoke.sh && git push origin beta
+
+# 2. main 只取生成结果
+git switch main && git pull
+git checkout origin/beta -- mihomo/
+bash tests/smoke.sh            # release 模式：只校验正式版
+
+# 3. 更新 CHANGELOG 后提交并打 tag
+git add -A && git commit -m "release: v2.5.3"
+git tag -a v2.5.3 -m "release: v2.5.3"
+git push origin main && git push origin v2.5.3
+```
+
+**为什么不能直接 `git merge beta`**：`beta` 上有 `mihomo_beta/`，整分支合并会把它带回 `main`，之后每个发布 PR 都要重新删除同一批文件。只取 `mihomo/` 一个目录，职责最清晰。
+
+- 一个发布提交对应一次发版，回滚只需 revert 一个 SHA。
+- 紧急修复也走同一条路径（在 `beta` 改源 → 生成 → 晋升），**不要直接在 `main` 上改 `mihomo/`**，否则下次晋升会被覆盖。
 - tag 一旦发布即不可变；需要改动就发新版本号，不要重推同名 tag。
-- 紧急回滚：`git revert <发布提交SHA>` → 开 PR → 打 `v2.5.4`。**不要 force push `main`**。
-- `beta` 长期不分叉：每次发布后可用 `git switch beta && git merge main` 把 tag 前后的稳定化改动带回来，避免两条线越走越远。
+- 紧急回滚：`git revert <发布提交SHA>` → 打 `v2.5.4`。**不要 force push `main`**。
 
 ---
 

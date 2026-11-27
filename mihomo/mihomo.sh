@@ -62,13 +62,16 @@ readonly LOGCLEAN_SERVICE="/etc/systemd/system/mihomo-logclean.service"
 readonly LOGCLEAN_TIMER="/etc/systemd/system/mihomo-logclean.timer"
 readonly LOGCLEAN_PERIODIC="/etc/periodic/daily/mihomo-logclean"
 
-readonly REPO_RAW="https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/refs/heads/main"
+# 通道分支：本文件位于 beta 分支，自更新一律取 beta；
+# tools/sync-mihomo.sh 生成正式版时会把该值改写为 main。
+readonly REPO_BRANCH="main"
+readonly REPO_RAW="https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/refs/heads/${REPO_BRANCH}"
 readonly SHELL_REPO="Abcd789JK/mihomo_scripts"
 readonly MIHOMO_RELEASE="https://github.com/MetaCubeX/mihomo/releases/download"
 readonly MIHOMO_VERSION_URL="${MIHOMO_RELEASE}/Prerelease-Alpha/version.txt"
 readonly MIHOMO_API="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
 readonly MIHOMO_API_TAGS="https://api.github.com/repos/MetaCubeX/mihomo/releases/tags"
-readonly CONFIG_URL="${REPO_RAW}/Config/mihomo.yaml"
+readonly CONFIG_URL="${REPO_RAW}/mihomo.yaml"
 readonly SHELL_URL="${REPO_RAW}/mihomo/mihomo.sh"
 readonly INSTALL_URL="${REPO_RAW}/mihomo/install.sh"
 readonly WEBUI_URL="https://github.com/Zephyruso/zashboard/archive/refs/heads/gh-pages.zip"
@@ -2680,7 +2683,7 @@ fetch_pinned_commit() {
     command_exists curl || return 1
     command_exists jq || return 1
 
-    api_url="https://api.github.com/repos/${repository}/commits/main"
+    api_url="https://api.github.com/repos/${repository}/commits/${REPO_BRANCH}"
     if ! response="$(http_get "$api_url" 10 30)"; then
         return 1
     fi

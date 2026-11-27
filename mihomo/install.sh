@@ -55,14 +55,17 @@ readonly SERVICE_SYSTEMD="/etc/systemd/system/mihomo.service"
 readonly SERVICE_OPENRC="/etc/init.d/mihomo"
 readonly SYSCTL_FILE="/etc/sysctl.d/99-ip-forward.conf"
 
-readonly REPO_RAW="https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/refs/heads/main"
+# 通道分支：本文件位于 beta 分支，自更新一律取 beta；
+# tools/sync-mihomo.sh 生成正式版时会把该值改写为 main。
+readonly REPO_BRANCH="main"
+readonly REPO_RAW="https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/refs/heads/${REPO_BRANCH}"
 readonly MIHOMO_RELEASE="https://github.com/MetaCubeX/mihomo/releases/download"
 readonly MIHOMO_VERSION_URL="${MIHOMO_RELEASE}/Prerelease-Alpha/version.txt"
 readonly MIHOMO_API="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
 readonly MIHOMO_API_TAGS="https://api.github.com/repos/MetaCubeX/mihomo/releases/tags"
-readonly CONFIG_URL="${REPO_RAW}/Config/mihomo.yaml"
-readonly SERVICE_URL_SYSTEMD="${REPO_RAW}/Service/mihomo.service"
-readonly SERVICE_URL_OPENRC="${REPO_RAW}/Service/mihomo.openrc"
+readonly CONFIG_URL="${REPO_RAW}/mihomo.yaml"
+readonly SERVICE_URL_SYSTEMD="${REPO_RAW}/mihomo.service"
+readonly SERVICE_URL_OPENRC="${REPO_RAW}/mihomo.openrc"
 readonly SHELL_URL="${REPO_RAW}/mihomo/mihomo.sh"
 readonly WEBUI_URL="https://github.com/Zephyruso/zashboard/archive/refs/heads/gh-pages.zip"
 
@@ -2074,7 +2077,7 @@ mihomo 一键安装脚本 v${SCRIPT_VERSION}
     bash install.sh
 
   国内网络慢可换 jsDelivr CDN:
-    curl -fsSL -o install.sh https://cdn.jsdelivr.net/gh/Abcd789JK/mihomo_scripts@main/mihomo/install.sh
+    curl -fsSL -o install.sh https://cdn.jsdelivr.net/gh/Abcd789JK/mihomo_scripts@${REPO_BRANCH}/mihomo/install.sh
     bash install.sh
 
   也可以直接管道执行（非交互，全部取默认值）:
