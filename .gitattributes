@@ -33,9 +33,9 @@ tests/smoke.sh           text eol=lf
 *.zip   binary
 *.gz    binary
 
-# mihomo/ 是生成物：GitHub 上折叠 diff，并在文件头标注 generated
+# mihomo/ 是生成物：GitHub 上默认折叠 diff，并标注 generated
+# 不要加 -diff，否则 Git 会把它们当二进制，行尾归一化与三方合并都会失效
 mihomo/*                linguist-generated=true
-mihomo/*                -diff
 mihomo_beta/*           linguist-language=Shell
 tools/*.sh              linguist-language=Shell
 tests/*.sh              linguist-language=Shell
