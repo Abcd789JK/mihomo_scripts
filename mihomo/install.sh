@@ -55,7 +55,7 @@ readonly SERVICE_SYSTEMD="/etc/systemd/system/mihomo.service"
 readonly SERVICE_OPENRC="/etc/init.d/mihomo"
 readonly SYSCTL_FILE="/etc/sysctl.d/99-ip-forward.conf"
 
-readonly REPO_RAW="https://raw.githubusercontent.com/Abcd789JK/Tools/refs/heads/main"
+readonly REPO_RAW="https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/refs/heads/main"
 readonly MIHOMO_RELEASE="https://github.com/MetaCubeX/mihomo/releases/download"
 readonly MIHOMO_VERSION_URL="${MIHOMO_RELEASE}/Prerelease-Alpha/version.txt"
 readonly MIHOMO_API="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
@@ -63,7 +63,7 @@ readonly MIHOMO_API_TAGS="https://api.github.com/repos/MetaCubeX/mihomo/releases
 readonly CONFIG_URL="${REPO_RAW}/Config/mihomo.yaml"
 readonly SERVICE_URL_SYSTEMD="${REPO_RAW}/Service/mihomo.service"
 readonly SERVICE_URL_OPENRC="${REPO_RAW}/Service/mihomo.openrc"
-readonly SHELL_URL="${REPO_RAW}/Script/mihomo/mihomo.sh"
+readonly SHELL_URL="${REPO_RAW}/mihomo/mihomo.sh"
 readonly WEBUI_URL="https://github.com/Zephyruso/zashboard/archive/refs/heads/gh-pages.zip"
 
 readonly MIRRORS=("https://gh-proxy.com" "https://github.boki.moe")
@@ -2066,19 +2066,19 @@ mihomo 一键安装脚本 v${SCRIPT_VERSION}
 安装方式（任选其一，curl 与 wget 都可以，有其中一个即可）:
 
   curl:
-    curl -fsSL -o install.sh ${REPO_RAW}/Script/mihomo/install.sh
+    curl -fsSL -o install.sh ${REPO_RAW}/mihomo/install.sh
     bash install.sh
 
   wget:
-    wget -qO install.sh ${REPO_RAW}/Script/mihomo/install.sh
+    wget -qO install.sh ${REPO_RAW}/mihomo/install.sh
     bash install.sh
 
   国内网络慢可换 jsDelivr CDN:
-    curl -fsSL -o install.sh https://cdn.jsdelivr.net/gh/Abcd789JK/Tools@main/Script/mihomo/install.sh
+    curl -fsSL -o install.sh https://cdn.jsdelivr.net/gh/Abcd789JK/mihomo_scripts@main/mihomo/install.sh
     bash install.sh
 
   也可以直接管道执行（非交互，全部取默认值）:
-    curl -fsSL ${REPO_RAW}/Script/mihomo/install.sh | bash
+    curl -fsSL ${REPO_RAW}/mihomo/install.sh | bash
 
   安装成功后会删除本次运行的 install.sh（源码目录内运行、或管道执行时不会删）。
 

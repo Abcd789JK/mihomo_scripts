@@ -62,15 +62,15 @@ readonly LOGCLEAN_SERVICE="/etc/systemd/system/mihomo-logclean.service"
 readonly LOGCLEAN_TIMER="/etc/systemd/system/mihomo-logclean.timer"
 readonly LOGCLEAN_PERIODIC="/etc/periodic/daily/mihomo-logclean"
 
-readonly REPO_RAW="https://raw.githubusercontent.com/Abcd789JK/Tools/refs/heads/main"
-readonly SHELL_REPO="Abcd789JK/Tools"
+readonly REPO_RAW="https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/refs/heads/main"
+readonly SHELL_REPO="Abcd789JK/mihomo_scripts"
 readonly MIHOMO_RELEASE="https://github.com/MetaCubeX/mihomo/releases/download"
 readonly MIHOMO_VERSION_URL="${MIHOMO_RELEASE}/Prerelease-Alpha/version.txt"
 readonly MIHOMO_API="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
 readonly MIHOMO_API_TAGS="https://api.github.com/repos/MetaCubeX/mihomo/releases/tags"
 readonly CONFIG_URL="${REPO_RAW}/Config/mihomo.yaml"
-readonly SHELL_URL="${REPO_RAW}/Script/mihomo_beta/mihomo.sh"
-readonly INSTALL_URL="${REPO_RAW}/Script/mihomo_beta/install.sh"
+readonly SHELL_URL="${REPO_RAW}/mihomo_beta/mihomo.sh"
+readonly INSTALL_URL="${REPO_RAW}/mihomo_beta/install.sh"
 readonly WEBUI_URL="https://github.com/Zephyruso/zashboard/archive/refs/heads/gh-pages.zip"
 
 readonly MIRRORS=("https://gh-proxy.com" "https://github.boki.moe")
@@ -2716,7 +2716,7 @@ update_shell() {
 
     # 优先锁定到具体提交，避免"先查版本、再下载浮动地址"造成制品与版本错位。
     if pinned_commit="$(fetch_pinned_commit "$SHELL_REPO")"; then
-        source_url="https://raw.githubusercontent.com/${SHELL_REPO}/${pinned_commit}/Script/mihomo_beta/mihomo.sh"
+        source_url="https://raw.githubusercontent.com/${SHELL_REPO}/${pinned_commit}/mihomo_beta/mihomo.sh"
         log_info "已锁定远端提交：${pinned_commit}"
     else
         source_url="$SHELL_URL"

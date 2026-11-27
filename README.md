@@ -1,8 +1,8 @@
 # mihomo 一键安装与管理脚本
 
-> 仓库地址：`https://github.com/<GITHUB_USER>/<REPO_NAME>`
+> 仓库地址：`https://github.com/Abcd789JK/mihomo_scripts`
 > 当前版本：`2.5.3-beta`（稳定版 `2.5.3` 由工具生成）
-> CI 状态：![CI](https://github.com/<GITHUB_USER>/<REPO_NAME>/actions/workflows/ci.yml/badge.svg)
+> CI 状态：![CI](https://github.com/Abcd789JK/mihomo_scripts/actions/workflows/ci.yml/badge.svg)
 
 面向 Linux 服务器、软路由与容器环境的 mihomo（Clash.Meta）内核一键安装与交互式管理脚本。
 
@@ -26,7 +26,7 @@
 ## 二、目录结构
 
 ```text
-<REPO_NAME>/
+mihomo_scripts/
 ├── mihomo_beta/                # ★ beta 通道：唯一手工维护的源码
 │   ├── install.sh              #   安装器（版本号含 -beta 后缀）
 │   └── mihomo.sh               #   管理菜单
@@ -62,25 +62,28 @@
 **稳定版（推荐）**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<GITHUB_USER>/<REPO_NAME>/main/mihomo/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/main/mihomo/install.sh | bash
 ```
 
 **测试版（尝鲜 / 协助验证）**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<GITHUB_USER>/<REPO_NAME>/main/mihomo_beta/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/beta/mihomo_beta/install.sh | bash
 ```
+
+> 测试版走 `beta` 分支，它的 HEAD 就是最新测试源，不必等合并到 `main`。
+> 若 `beta` 分支尚未推送，可临时用 `main/mihomo_beta/install.sh`（即最近一次晋升的快照）。
 
 **国内网络（jsDelivr 镜像）**
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/<GITHUB_USER>/<REPO_NAME>@main/mihomo/install.sh | bash
+curl -fsSL https://cdn.jsdelivr.net/gh/Abcd789JK/mihomo_scripts@main/mihomo/install.sh | bash
 ```
 
 **钉住版本（生产环境推荐）**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<GITHUB_USER>/<REPO_NAME>/v2.5.3/mihomo/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/v2.5.3/mihomo/install.sh | bash
 ```
 
 > 用 tag 而不是 `main`，可避免"上游刚合并、你正好装到中间态"。生产节点请优先使用版本化地址。
@@ -150,8 +153,9 @@ bash tests/smoke.sh
 
 # 4. 实机验证：安装 → 启动 → 切换节点 → 查看日志 → 卸载
 
-# 5. 提交并合并（走 PR，见下节）
+# 5. 推送到 beta 分支（发布时再以 PR 合入 main）
 git add -A && git commit -m "feat(mihomo): ..."
+git push origin beta
 ```
 
 `sync-mihomo.sh` 在覆盖稳定版之前会依次校验：
@@ -177,24 +181,44 @@ git add -A && git commit -m "feat(mihomo): ..."
 
 ## 六、分支与发布
 
-| 分支 | 用途 |
-|---|---|
-| `main` | 发布分支。任何提交都视为可发布状态，禁止直推 |
-| `beta` | 集成分支。`feature/*` 合入此处，对应 `mihomo_beta/` 的改动 |
-| `feature/<slug>` | 单功能开发，从 `beta` 拉出，合并后删除 |
-| `hotfix/<slug>` | 线上紧急修复，从 `main` 拉出，**同时**合回 `main` 与 `beta` |
+**`main` = 正式版，`beta` = 测试版。** 两条都是长期分支，通道身份由分支决定：
 
-发布步骤：
+| 分支 | 通道 | 内容 | 规则 |
+|---|---|---|---|
+| `main` | 正式版 | 对外发布。`mihomo/` 为当前稳定版，`mihomo_beta/` 为最近一次晋升的快照 | 禁止直推，只接受来自 `beta` 或 `hotfix/*` 的 PR |
+| `beta` | 测试版 | 日常开发与实机验证的主战场，改动落在 `mihomo_beta/` | 允许直推；合并 PR 前必须跑通 `smoke.sh` |
+| `feature/<slug>` `fix/<slug>` | 实验 | 单个功能或修复，从 `beta` 拉出 | 合并后自动删除 |
+| `hotfix/<slug>` | 应急 | 从 `main` 拉出，修完**同时**合回 `main` 与 `beta` | 合并后自动删除 |
+
+**分支与目录的对应关系**（两套概念不要混）：
+
+- 分支管"这条线在做哪个通道"，目录管"脚本从哪个路径取"。
+- 用户下载：正式版取 `main/mihomo/`，测试版取 `beta/mihomo_beta/`。
+- 脚本自更新与重装**统一从 `main` 的 `mihomo_beta/` 拉取**（`SHELL_URL` / `INSTALL_URL` 写死在 `REPO_RAW` 上），所以 `main` 上必须保留 `mihomo_beta/`，不能只留 `mihomo/`。
+
+**发布流程（beta → main）**
 
 ```bash
-git checkout main && git pull
+# 1. 在 beta 上完成开发与实机验证
+git switch beta && bash tests/smoke.sh
+
+# 2. 开 PR：beta → main，squash merge
+#    合并后 main 上的 mihomo_beta/ 即为新版本源
+
+# 3. 在 main 上重新生成稳定版并自检
+git switch main && git pull
+bash tools/sync-mihomo.sh && bash tests/smoke.sh
+
+# 4. 打 tag 发布（手动推送）
 git tag -a v2.5.3 -m "release: v2.5.3"
-git push origin v2.5.3          # 手动执行
+git push origin v2.5.3
 ```
 
+- 第 3 步不能省：squash 只搬运源码，`mihomo/` 必须由 `main` 上的 `mihomo_beta/` 现场生成，否则 CI 的生成物一致性检查会失败。
 - `main` 上用 **squash merge**，一个提交对应一次发布，回滚只需 revert 一个 SHA。
 - tag 一旦发布即不可变；需要改动就发新版本号，不要重推同名 tag。
 - 紧急回滚：`git revert <发布提交SHA>` → 开 PR → 打 `v2.5.4`。**不要 force push `main`**。
+- `beta` 长期不分叉：每次发布后可用 `git switch beta && git merge main` 把 tag 前后的稳定化改动带回来，避免两条线越走越远。
 
 ---
 
@@ -219,13 +243,13 @@ git push origin v2.5.3          # 手动执行
 
 ## 九、License
 
-[MIT](./LICENSE) © `<GITHUB_USER>`
+[MIT](./LICENSE) © `Abcd789JK`
 
 ---
 
 ## 附录：仓库首次配置待办
 
-- [ ] 全局替换占位符：`<GITHUB_USER>`、`<REPO_NAME>`（含脚本内的 `REPO_RAW` / `SHELL_REPO`，见 `docs/migration.md`）
+- [x] 脚本内地址已指向 `Abcd789JK/mihomo_scripts`（`REPO_RAW` / `SHELL_REPO` / 镜像地址，见 `docs/migration.md`）
 - [ ] 确认默认分支为 `main`
 - [ ] 创建 `beta` 分支并推送
 - [ ] 配置 `main` / `beta` / `v*` tag 的保护规则

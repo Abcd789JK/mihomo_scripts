@@ -1,6 +1,10 @@
 # 迁移到独立仓库：路径替换清单
 
-本仓库从 `Abcd789JK/Tools` 拆分而来。脚本内部硬编码了上游仓库地址与目录前缀，**首次推送前必须完成本页的替换**，否则安装器会把用户拉回旧仓库。
+> **状态：已于 2026-11-27 执行完毕**（目标仓库 `Abcd789JK/mihomo_scripts`）。
+> 本文档保留为操作记录：若将来再次更换仓库名或迁移目录，按同一流程重做即可。
+> 历史记录：本仓库从 `Abcd789JK/Tools` 的 `Script/` 子目录拆分而来。
+
+脚本内部硬编码了上游仓库地址与目录前缀，迁移时必须替换，否则安装器会把用户拉回旧仓库。
 
 只需改 `mihomo_beta/`，`mihomo/` 由生成器重写。
 
@@ -10,10 +14,10 @@
 
 | 位置 | 旧值 | 新值 | 说明 |
 |---|---|---|---|
-| `REPO_RAW` | `https://raw.githubusercontent.com/Abcd789JK/Tools/refs/heads/main` | `https://raw.githubusercontent.com/<GITHUB_USER>/<REPO_NAME>/refs/heads/main` | 所有原始文件地址的前缀 |
-| `SHELL_REPO` | `Abcd789JK/Tools` | `<GITHUB_USER>/<REPO_NAME>` | 用于查询 `commits/main` 取 pin 住的 commit |
+| `REPO_RAW` | `https://raw.githubusercontent.com/Abcd789JK/Tools/refs/heads/main` | `https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/refs/heads/main` | 所有原始文件地址的前缀 |
+| `SHELL_REPO` | `Abcd789JK/Tools` | `Abcd789JK/mihomo_scripts` | 用于查询 `commits/main` 取 pin 住的 commit |
 | 路径前缀 | `/Script/mihomo_beta` | `/mihomo_beta` | 目录从 `Tools/Script/` 提到了仓库根 |
-| jsDelivr 镜像 | `gh/Abcd789JK/Tools@main/Script/mihomo_beta` | `gh/<GITHUB_USER>/<REPO_NAME>@main/mihomo_beta` | 由上面两条规则联动得到 |
+| jsDelivr 镜像 | `gh/Abcd789JK/Tools@main/Script/mihomo_beta` | `gh/Abcd789JK/mihomo_scripts@main/mihomo_beta` | 由上面两条规则联动得到 |
 
 **匹配处数**（已按 2.5.3-beta 实测）：
 
@@ -39,8 +43,8 @@ cd mihomo-scripts
 # 0. 先备份（sed -i 不可撤销）
 cp -a mihomo_beta /tmp/mihomo_beta.bak.$(date +%Y%m%d%H%M%S)
 
-# 1. 替换仓库归属（沿用原 owner 时只改 <REPO_NAME>）
-sed -i 's#Abcd789JK/Tools#<GITHUB_USER>/<REPO_NAME>#g' mihomo_beta/install.sh mihomo_beta/mihomo.sh
+# 1. 替换仓库归属（沿用原 owner 时只改 mihomo_scripts）
+sed -i 's#Abcd789JK/Tools#Abcd789JK/mihomo_scripts#g' mihomo_beta/install.sh mihomo_beta/mihomo.sh
 
 # 2. 去掉 Script/ 前缀（mihomo_beta 前多一个斜杠，替换后不产生双斜杠）
 sed -i 's#/Script/mihomo_beta#/mihomo_beta#g' mihomo_beta/install.sh mihomo_beta/mihomo.sh
@@ -67,20 +71,25 @@ bash tests/smoke.sh
 grep -n 'REPO_RAW=\|SHELL_REPO=' mihomo/install.sh mihomo/mihomo.sh
 ```
 
-预期：4 条 `grep` 全部指向 `<GITHUB_USER>/<REPO_NAME>`，`sync` 输出 `[ OK ] 已同步正式版 2.5.3`，`smoke` 输出 `[ PASS ] 全部检查通过`。
+预期：4 条 `grep` 全部指向 `Abcd789JK/mihomo_scripts`，`sync` 输出 `[ OK ] 已同步正式版 2.5.3`，`smoke` 输出 `[ PASS ] 全部检查通过`。
 
 ---
 
-## 四、同步替换文档占位符
+## 四、文档中的地址同步（已完成）
 
-以下文件中的 `<GITHUB_USER>` / `<REPO_NAME>` 需要替换为真实值（不涉及逻辑，仅影响可读性）：
+脚本地址替换后，文档与元信息中的仓库名一并更新，否则 README 里的安装命令会指向旧仓库：
 
-- `README.md`（安装地址、徽章、License 行）
-- `LICENSE`（版权署名）
-- `CHANGELOG.md`（如引用仓库地址）
+| 文件 | 需要同步的位置 |
+|---|---|
+| `README.md` | 安装地址、jsDelivr 镜像、版本化地址、CI 徽章、附录清单 |
+| `LICENSE` | 版权署名 |
+| `CHANGELOG.md` | 迁移条目 |
+
+核对命令（应无输出）：
 
 ```bash
-sed -i 's#<GITHUB_USER>#your-name#g; s#<REPO_NAME>#your-repo#g' README.md LICENSE
+grep -rn 'Abcd789JK/Tools' --exclude-dir=.git .
+grep -rn 'Script/mihomo' --exclude-dir=.git .
 ```
 
 ---
