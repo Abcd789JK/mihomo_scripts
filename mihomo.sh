@@ -2856,6 +2856,7 @@ update_shell() {
 
     check_network
     log_info "正在检查管理脚本更新..."
+    log_info "当前脚本通道：$(release_channel_name "$RELEASE_CHANNEL")（${RELEASE_CHANNEL}），自更新沿用该通道"
 
     # 候选脚本放在本次创建的私有临时目录中，由 EXIT Trap 统一回收。
     if ! work_dir="$(mktemp -d /tmp/mihomo-update.XXXXXX 2>/dev/null)"; then

@@ -12,8 +12,8 @@
 # main / usage / print_header 因入口职责不同各自实现，不参与同步。
 # 仓库结构：两份脚本都在仓库根目录，main 与 beta 分支的目录结构、文件名称完全一致，
 # 正式版与测试版只靠分支区分，不再使用 mihomo/、mihomo_beta/ 之类的重复目录。
-# 脚本通道不写死在代码里：安装参数或 channel.txt 决定运行时读取哪个分支的资源，
-# 因此 beta 合入 main 时无需修改任何分支变量或下载地址。
+# 脚本通道由安装参数决定：未指定时默认 main，不读取 channel.txt 作为默认值；
+# channel.txt 只在安装成功后写入，供管理脚本自更新沿用当前通道。
 
 # 必须用 bash 运行：dash/sh 不支持 pipefail、[[ ]] 与进程替换。
 # 该守卫必须早于 set -Eeuo pipefail，否则在 sh 下会先抛出晦涩的 set 报错，
@@ -91,7 +91,7 @@ arch=""
 arch_raw=""
 version=""
 channel=""             # 空=未指定（交互询问，默认 stable）；stable=正式版 / alpha=测试版（内核通道）
-release_channel=""     # 空=沿用已保存通道，缺省 main；main=正式版 / beta=测试版（脚本通道）
+release_channel=""     # 空=默认 main（不读历史记录）；main=正式版 / beta=测试版（脚本通道）
 ipv4=""
 use_cdn=false
 url_prefix=""          # 空 = 直连；非空 = 已验证可用的镜像前缀
@@ -2106,13 +2106,6 @@ install_mihomo() {
     step "安装管理脚本"
     install_manager || die "管理脚本安装失败"
 
-    step "记录脚本通道"
-    if save_release_channel; then
-        log_success "脚本通道：$(release_channel_name "$RELEASE_CHANNEL")"
-    else
-        log_warn "脚本通道未能保存，下次运行将按正式版（main）处理"
-    fi
-
     step "写入配置"
     if (( keep_existing )) && (( $(count_providers "$CONFIG_FILE" 2>/dev/null || printf '0') > 0 )); then
         log_info "检测到已有机场订阅，将保留并刷新默认配置"
@@ -2140,6 +2133,14 @@ install_mihomo() {
                 fi
                 ;;
         esac
+    fi
+
+    # 只在全部步骤成功后记录通道：失败路径不得覆盖原有的通道记录。
+    step "记录脚本通道"
+    if save_release_channel; then
+        log_success "脚本通道：$(release_channel_name "$RELEASE_CHANNEL")"
+    else
+        log_warn "脚本通道未能保存，管理脚本自更新可能无法沿用当前通道"
     fi
 
     printf '\n'
@@ -2174,19 +2175,19 @@ mihomo 一键安装脚本 v${SCRIPT_VERSION}
 
 安装方式：
 
-  正式版脚本（main）：
-    bash <(curl -fsSL ${REPO_URL}/main/install.sh) main
+  正式版脚本（main，不带参数）：
+    bash <(curl -fsSL ${REPO_URL}/main/install.sh)
 
-  测试版脚本（beta）：
+  测试版脚本（beta，需显式传 beta）：
     bash <(curl -fsSL ${REPO_URL}/beta/install.sh) beta
 
   也可以先下载再执行（curl / wget 有其一即可）：
     curl -fsSL -o install.sh ${REPO_URL}/main/install.sh
-    bash install.sh main
+    bash install.sh
 
   国内网络慢可换 jsDelivr CDN（把 @main 换成 @beta 即脚本测试版）：
     curl -fsSL -o install.sh https://cdn.jsdelivr.net/gh/${SHELL_REPO}@main/install.sh
-    bash install.sh main
+    bash install.sh
 
   安装成功后会删除本次运行的 install.sh（源码目录内运行、或管道执行时不会删）。
 
@@ -2199,9 +2200,10 @@ mihomo 一键安装脚本 v${SCRIPT_VERSION}
   --channel alpha      安装测试版内核（alpha，如 alpha-94b13ae）
 
 说明:
-  位置参数是脚本通道，省略时沿用已保存的通道，没有记录则用正式版 main。
+  位置参数是脚本通道：显式 main / beta 安装对应通道，省略时默认正式版 main，
+  不读取历史通道记录；非法通道参数直接报错退出。全新安装与覆盖安装规则相同。
   脚本通道只影响脚本与配套文件从哪个分支获取；--channel 决定安装哪个 mihomo
-  内核版本，两者互不影响。
+  内核版本，两者互不影响。安装成功后才写入通道记录，失败不会覆盖原有记录。
   不指定 --channel 时会在安装前询问，默认正式版内核（stable）。
   安装成功后自动删除本次运行的 install.sh，避免残留；安装失败时保留以便重试。
   支持 apt / dnf(yum) / pacman / apk / zypper 系发行版：
@@ -2297,13 +2299,10 @@ main() {
     resolve_self_path     # 必须在任何 cd 之前解析 $0，供安装成功后自删除使用
     print_script_header
 
-    # 位置参数优先；未指定时沿用已保存通道。全新安装没有记录属于正常情况，
-    # 直接取默认 main（不告警）；有记录但内容非法时中止，交由用户显式指定通道。
+    # 脚本通道只由命令行参数决定：显式 main/beta 安装对应通道，未指定一律默认 main。
+    # 不再读取 channel.txt 作为默认值，避免覆盖安装时把机器带回上次记录的通道。
     if [[ -n "$release_channel" ]]; then
         apply_release_channel "$release_channel"
-    elif [[ -f "$RELEASE_FILE" ]]; then
-        # 记录非法时不猜测：显式指定通道即可覆盖，避免把机器切到另一条通道
-        read_release_channel || die "脚本通道记录非法，请执行 bash install.sh main（或 beta）重新指定"
     else
         apply_release_channel "$RELEASE_DEFAULT"
     fi
