@@ -12,7 +12,7 @@
 # main / print_header 因入口职责不同各自实现，不参与同步。
 # 仓库结构：两份脚本都在仓库根目录，main 与 beta 分支的目录结构、文件名称完全一致，
 # 正式版与测试版只靠分支区分，不再使用 mihomo/、mihomo_beta/ 之类的重复目录。
-# 发布通道不写死在代码里：启动时读取 channel.txt（缺省 main），
+# 脚本通道不写死在代码里：启动时读取 channel.txt（缺省 main），
 # 自更新、重装与版本查询都按该通道取资源，因此 beta 合入 main 时无需改代码。
 
 # 必须用 bash 运行：dash/sh 不支持 pipefail、[[ ]] 与进程替换。
@@ -64,7 +64,7 @@ readonly LOGCLEAN_SERVICE="/etc/systemd/system/mihomo-logclean.service"
 readonly LOGCLEAN_TIMER="/etc/systemd/system/mihomo-logclean.timer"
 readonly LOGCLEAN_PERIODIC="/etc/periodic/daily/mihomo-logclean"
 
-# 仓库地址与发布通道：通道只在运行期决定，不写死分支，也不随所在分支变化。
+# 仓库地址与脚本通道：通道只在运行期决定，不写死分支，也不随所在分支变化。
 readonly REPO_URL="https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts"
 readonly SHELL_REPO="Abcd789JK/mihomo_scripts"
 readonly RELEASE_DEFAULT="main"
@@ -75,7 +75,7 @@ readonly MIHOMO_API="https://api.github.com/repos/MetaCubeX/mihomo/releases/late
 readonly MIHOMO_API_TAGS="https://api.github.com/repos/MetaCubeX/mihomo/releases/tags"
 readonly WEBUI_URL="https://github.com/Zephyruso/zashboard/archive/refs/heads/gh-pages.zip"
 
-# 发布通道与由它派生的资源地址，统一由 apply_release_channel 在下载任何文件之前填充。
+# 脚本通道与由它派生的资源地址，统一由 apply_release_channel 在下载任何文件之前填充。
 RELEASE_CHANNEL=""
 REPO_RAW=""
 CONFIG_URL=""
@@ -334,10 +334,10 @@ confirm() { # $1=提示语 $2=默认值
 }
 
 # ==================================================
-# 发布通道（main 正式版 / beta 测试版）
+# 脚本通道（main 正式版 / beta 测试版）
 # ==================================================
 
-# 校验发布通道取值，只接受 main 与 beta。
+# 校验脚本通道取值，只接受 main 与 beta。
 valid_release_channel() { # $1=通道
     case "${1:-}" in
         main|beta) return 0 ;;
@@ -345,15 +345,15 @@ valid_release_channel() { # $1=通道
     esac
 }
 
-# 发布通道 → 中文名，用于界面提示。
+# 脚本通道 → 界面显示名（中文 + 英文代号）。
 release_channel_name() { # $1=通道
     case "${1:-}" in
-        beta) printf '测试版' ;;
-        *)    printf '正式版' ;;
+        beta) printf '测试版（Beta）' ;;
+        *)    printf '正式版（Main）' ;;
     esac
 }
 
-# 按发布通道拼出仓库 Raw 地址与该通道下的资源地址。
+# 按脚本通道拼出仓库 Raw 地址与该通道下的资源地址。
 # 脚本自身所在分支不参与判断：分支只决定下载到的文件内容，
 # 运行期一切地址都由通道推导，因此 beta 合入 main 时不需要改代码。
 apply_release_channel() { # $1=通道
@@ -364,7 +364,7 @@ apply_release_channel() { # $1=通道
     INSTALL_URL="${REPO_RAW}/install.sh"
 }
 
-# 读取已保存的发布通道。
+# 读取已保存的脚本通道。
 # - 文件缺失：旧版本没有该记录，按 main 处理并提示，属于安全迁移（不会跳到测试版）
 # - 文件存在但内容非法：拒绝猜测并返回 1，避免把测试版机器静默拉回正式版
 read_release_channel() {
@@ -380,25 +380,25 @@ read_release_channel() {
 
     if [[ -z "$saved" ]]; then
         apply_release_channel "$RELEASE_DEFAULT"
-        log_warn "未检测到发布通道记录，已按$(release_channel_name "$RELEASE_DEFAULT")处理"
+        log_warn "未检测到脚本通道记录，已按$(release_channel_name "$RELEASE_DEFAULT")处理"
         return 0
     fi
 
     # 记录存在但非法：任何自动选择都可能把测试版机器切到正式版（或反之），
     # 因此停下来交给用户确认，不做静默回退。
-    log_error "发布通道记录非法：${saved}（应为 main 或 beta）"
+    log_error "脚本通道记录非法：${saved}（应为 main 或 beta）"
     log_error "文件：${RELEASE_FILE}"
     return 1
 }
 
-# 保存发布通道；写入失败不中断主流程（下次运行仍回退 main），但必须明确告警。
+# 保存脚本通道；写入失败不中断主流程（下次运行仍回退 main），但必须明确告警。
 save_release_channel() {
     local tmp="${RELEASE_FILE}.tmp"
 
     if ! printf '%s\n' "$RELEASE_CHANNEL" > "$tmp" 2>/dev/null \
         || ! mv -f -- "$tmp" "$RELEASE_FILE" 2>/dev/null; then
         rm -f -- "$tmp" 2>/dev/null || true
-        log_warn "发布通道保存失败：${RELEASE_FILE}（下次运行将按正式版处理）"
+        log_warn "脚本通道保存失败：${RELEASE_FILE}，下次运行将按正式版（Main）处理"
         return 1
     fi
     chmod 600 "$RELEASE_FILE" 2>/dev/null || true
@@ -413,6 +413,19 @@ detect_distro() {
     . /etc/os-release
 
     distro="${ID:-unknown}"
+    # 界面统一用规范品牌名；包管理器判断仍基于原始 ID_LIKE，不受影响。
+    case "$distro" in
+        debian)              distro="Debian" ;;
+        ubuntu)              distro="Ubuntu" ;;
+        alpine)              distro="Alpine" ;;
+        arch)                distro="Arch" ;;
+        centos)              distro="CentOS" ;;
+        rhel|redhat)         distro="RHEL" ;;
+        fedora)              distro="Fedora" ;;
+        opensuse*|suse|sles) distro="openSUSE" ;;
+        unknown)             distro="Unknown" ;;
+        *)                   distro="${distro^}" ;;
+    esac
     pkg_mgr=""
     local cand
     # ID_LIKE 可能含多个值（如 "rhel centos fedora"），逐个尝试
@@ -828,7 +841,7 @@ valid_version() {
     grep -Eq '^[0-9A-Za-z][0-9A-Za-z._-]*$' <<<"$v"
 }
 
-# 版本通道判定：alpha-<哈希> 为测试版，纯数字为正式版。
+# 内核通道判定：alpha-<哈希> 为测试版，纯数字为正式版。
 detect_channel() { # $1=版本号
     case "$1" in
         *alpha*) printf 'alpha' ;;
@@ -836,9 +849,9 @@ detect_channel() { # $1=版本号
     esac
 }
 
-# 版本通道 → 中文名。
-channel_name() { # $1=通道 → 中文名
-    [[ "$1" == "alpha" ]] && printf '测试版' || printf '正式版'
+# 内核通道 → 界面显示名（中文 + 英文代号）。
+channel_name() { # $1=通道 → 显示名
+    [[ "$1" == "alpha" ]] && printf '测试版（Alpha）' || printf '正式版（Stable）'
 }
 
 # 获取测试版版本号。
@@ -923,7 +936,7 @@ fetch_asset_digest() { # $1=资产名（如 mihomo-linux-amd64-compatible-v1.19.
     printf '%s' "${d,,}"
 }
 
-# 完整性校验：两个版本通道各有各的权威来源，互不影响。
+# 完整性校验：两个内核通道各有各的权威来源，互不影响。
 #   正式版 → GitHub API 的 asset.digest（上游未发布 checksums.txt）
 #   测试版 → Prerelease-Alpha/checksums.txt（沿用原方案）
 # 两者都不可用时降级为告警而不阻断安装，避免镜像/限流导致装不上。
@@ -1089,19 +1102,19 @@ show_status() {
     kv "运行状态" "$run_status"
     kv "开机自启" "$auto_start"
     kv "当前系统" "${COLOR_GREEN}${distro}${COLOR_RESET}"
-    kv "软件版本" "${COLOR_GREEN}${software_version}${COLOR_RESET}"
+    kv "内核版本" "${COLOR_GREEN}${software_version}${COLOR_RESET}"
     if [[ -f "$BIN_FILE" && -f "$VERSION_FILE" && "$software_version" != "未知" ]]; then
         local chan
         chan=$(channel_name "$(detect_channel "$software_version")")
-        kv "内核版本通道" "${COLOR_GREEN}${chan}${COLOR_RESET}"
+        kv "内核通道" "${COLOR_GREEN}${chan}${COLOR_RESET}"
     fi
-    # 发布通道是脚本自身的来源分支，与上面的内核版本通道互不影响
+    # 脚本通道是脚本自身的来源分支，与上面的内核通道互不影响
     if [[ "$RELEASE_CHANNEL" == 'beta' ]]; then
-        release_text="${COLOR_YELLOW}$(release_channel_name "$RELEASE_CHANNEL")（${RELEASE_CHANNEL}）${COLOR_RESET}"
+        release_text="${COLOR_YELLOW}$(release_channel_name "$RELEASE_CHANNEL")${COLOR_RESET}"
     else
-        release_text="${COLOR_GREEN}$(release_channel_name "$RELEASE_CHANNEL")（${RELEASE_CHANNEL}）${COLOR_RESET}"
+        release_text="${COLOR_GREEN}$(release_channel_name "$RELEASE_CHANNEL")${COLOR_RESET}"
     fi
-    kv "脚本发布通道" "$release_text"
+    kv "脚本通道" "$release_text"
     kv "本机IPv4" "${COLOR_GREEN}${ipv4}${COLOR_RESET}"
     # 无 IPv6 时用默认色：绿色是成功色，"无"不是成功状态
     if [[ -n "${ipv6:-}" ]]; then
@@ -2268,7 +2281,7 @@ reinstall_mihomo() {
         return 1
     fi
 
-    # 显式传入当前发布通道：安装脚本据此从同一分支取管理脚本与配套文件，
+    # 显式传入当前脚本通道：安装脚本据此从同一分支取管理脚本与配套文件，
     # 重装不会把测试版机器带回正式版，也不会把正式版机器切到测试版。
     if bash "$tmp" "$RELEASE_CHANNEL"; then
         rm -f -- "$tmp"
@@ -2353,7 +2366,7 @@ fetch_mihomo_binary() {
     else
         version=$(fetch_latest_version) || { log_error "获取正式版版本号失败，请检查网络"; return 1; }
     fi
-    log_info "获取软件版本：${version}（$(channel_name "$channel")）"
+    log_info "获取内核版本：${version}，$(channel_name "$channel")"
 
     while IFS= read -r c; do
         [[ -n "$c" ]] && cands+=("$c")
@@ -2517,28 +2530,28 @@ switch_version() {
     channel=$(detect_channel "$current")
 
     hreq
-    printf '当前版本: %s（%s）\n' "$current" "$(channel_name "$channel")"
+    printf '当前内核版本: %s，%s\n' "$current" "$(channel_name "$channel")"
     hr
-    printf '%s\n' "${COLOR_GREEN}1${COLOR_RESET}. 正式版 (Release，如 v1.19.32)"
-    printf '%s\n' "${COLOR_GREEN}2${COLOR_RESET}. 测试版 (Alpha，如 alpha-94b13ae)"
+    printf '%s\n' "${COLOR_GREEN}1${COLOR_RESET}. 正式版（Stable，如 v1.19.32）"
+    printf '%s\n' "${COLOR_GREEN}2${COLOR_RESET}. 测试版（Alpha，如 alpha-94b13ae）"
     hr
 
     read_input choice "${COLOR_CYAN}请输入选项 (1/2): ${COLOR_RESET}"
     case "$choice" in
         1)
             if [[ "$channel" == "stable" ]]; then
-                log_warn "当前已是正式版，无需重复操作"
+                log_warn "当前已是内核正式版，无需重复操作"
                 return 0
             fi
-            log_info "准备切换到正式版"
+            log_info "准备切换到内核正式版"
             download_and_install stable
             ;;
         2)
             if [[ "$channel" == "alpha" ]]; then
-                log_warn "当前已是测试版，无需重复操作"
+                log_warn "当前已是内核测试版，无需重复操作"
                 return 0
             fi
-            log_info "准备切换到测试版"
+            log_info "准备切换到内核测试版"
             download_and_install alpha
             ;;
         *) log_warn "无效选项" ;;
@@ -2942,7 +2955,7 @@ menu() {
         hr
         printf '%s%2d%s. %s\n' "$COLOR_GREEN" 7  "$COLOR_RESET" "添加开机自启"
         printf '%s%2d%s. %s\n' "$COLOR_GREEN" 8  "$COLOR_RESET" "关闭开机自启"
-        printf '%s%2d%s. %s\n' "$COLOR_GREEN" 9  "$COLOR_RESET" "切换软件版本"
+        printf '%s%2d%s. %s\n' "$COLOR_GREEN" 9  "$COLOR_RESET" "切换内核通道"
         hr
         printf '%s%2d%s. %s\n' "$COLOR_GREEN" 10 "$COLOR_RESET" "配置管理"
         printf '%s%2d%s. %s\n' "$COLOR_GREEN" 11 "$COLOR_RESET" "查看日志"
@@ -2987,7 +3000,7 @@ main() {
 
     detect_distro
 
-    # 发布通道必须在任何下载动作之前确定：菜单、自更新、重装、配置下载都依赖它。
+    # 脚本通道必须在任何下载动作之前确定：菜单、自更新、重装、配置下载都依赖它。
     # 记录非法时直接退出，不做静默回退，避免把测试版机器切到正式版。
     if ! read_release_channel; then
         log_error "请修正 ${RELEASE_FILE}（内容为 main 或 beta），或重新执行安装命令指定通道"

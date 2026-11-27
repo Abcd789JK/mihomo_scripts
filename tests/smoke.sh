@@ -165,11 +165,11 @@ for f in "${FILES[@]}"; do
     done
 done
 
-# install.sh：位置参数即发布通道，且必须严格校验
-if grep -q '无效的发布通道' "${ROOT_DIR}/install.sh"; then
-    ok 'install.sh 校验发布通道参数'
+# install.sh：位置参数即脚本通道，且必须严格校验
+if grep -q '无效的脚本通道' "${ROOT_DIR}/install.sh"; then
+    ok 'install.sh 校验脚本通道参数'
 else
-    bad 'install.sh 未校验发布通道参数'
+    bad 'install.sh 未校验脚本通道参数'
 fi
 if grep -q 'save_release_channel' "${ROOT_DIR}/install.sh"; then
     ok 'install.sh 安装后保存通道'
@@ -199,9 +199,9 @@ else
     for f in "${FILES[@]}"; do
         [[ -f "${ROOT_DIR}/${f}" ]] || continue
         block="${WORK_DIR}/block-${f}.sh"
-        sed -n '/^# 发布通道（main 正式版/,/^# 发行版识别/p' "${ROOT_DIR}/${f}" | sed '$d' > "$block"
+        sed -n '/^# 脚本通道（main 正式版/,/^# 发行版识别/p' "${ROOT_DIR}/${f}" | sed '$d' > "$block"
         if [[ ! -s "$block" ]]; then
-            bad "${f} 未找到发布通道函数块（注释锚点被改动？）"
+            bad "${f} 未找到脚本通道函数块（注释锚点被改动？）"
             continue
         fi
 
