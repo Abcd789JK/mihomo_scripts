@@ -39,10 +39,10 @@ mihomo_scripts/
 ├── mihomo.yaml             # 默认配置（脚本从仓库根目录下载）
 ├── mihomo.service          # systemd 单元
 ├── mihomo.openrc           # OpenRC 服务脚本
-└── CHANGELOG.md  LICENSE  README.md  README_CN.md
+└── CHANGELOG.md  升级日志.md  LICENSE  README.md  README_CN.md
 ```
 
-`README_CN.md` 是面向新装机的图文教程，侧重系统准备（换源、依赖、PVE 开启 TUN），其中的关键步骤已并入本文第三、四章。
+`README_CN.md` 是面向新装机的图文教程，侧重系统准备（换源、依赖、PVE 开启 TUN），其中的关键步骤已并入本文第三、四章。`升级日志.md` 按时间倒序记录每次更新了什么，更新前可以先看一眼。
 
 两个通道装出来的目录完全一样，区别只在脚本内容：`main` 取正式版，`beta` 取测试版。
 
@@ -392,7 +392,7 @@ logread | grep mihomo            # OpenRC 下的日志
 
 ### 更新管理脚本（菜单 12）
 
-管理脚本与内核分开更新：菜单 12 替换的是 `/usr/bin/mihomo` 这个菜单程序，菜单 2 / 9 换的是内核二进制。升级脚本不会重启服务，也不会改动 `config.yaml` 与订阅。
+管理脚本与内核分开更新：菜单 12 替换的是 `/usr/bin/mihomo` 这个菜单程序，菜单 2 / 9 换的是内核二进制。升级脚本不会重启服务，也不会改动 `config.yaml` 与订阅。每次更新了什么见 `升级日志.md`。
 
 **什么情况下用菜单 12**
 
