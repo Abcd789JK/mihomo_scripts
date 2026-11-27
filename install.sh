@@ -5,7 +5,7 @@
 # desc   : 一键安装 mihomo 内核、系统服务与管理面板并生成订阅配置
 # date   : 2026-11-27 16:34:10
 # author : ChatGPT JK789
-# ver    : 2.6.0-beta
+# ver    : 2.6.1-beta
 # --------------------------------------------------
 
 # 与 mihomo.sh 共用同名函数，改动需同步两份；
@@ -38,7 +38,7 @@ if (( EUID != 0 )); then
 fi
 
 # 声明当前脚本版本，必须与文件头 ver 完全一致。
-readonly SCRIPT_VERSION="2.6.0-beta"
+readonly SCRIPT_VERSION="2.6.1-beta"
 
 # 收紧新建文件的默认权限：配置与临时文件只允许属主访问。
 umask 077
