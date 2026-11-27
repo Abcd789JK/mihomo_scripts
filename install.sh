@@ -3,7 +3,7 @@
 # --------------------------------------------------
 # name   : install.sh
 # desc   : 一键安装 mihomo 内核、系统服务与管理面板并生成订阅配置
-# date   : 2026-11-27 16:33:04
+# date   : 2026-11-27 16:34:10
 # author : ChatGPT JK789
 # ver    : 2.6.0
 # --------------------------------------------------
@@ -2285,7 +2285,7 @@ main() {
     print_script_header
 
     # 位置参数优先；未指定时沿用已保存通道。全新安装没有记录属于正常情况，
-    # 直接取默认 main（不告警）；有记录但内容非法时才由 read_release_channel 告警。
+    # 直接取默认 main（不告警）；有记录但内容非法时中止，交由用户显式指定通道。
     if [[ -n "$release_channel" ]]; then
         apply_release_channel "$release_channel"
     elif [[ -f "$RELEASE_FILE" ]]; then
