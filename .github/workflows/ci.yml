@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 阻塞性检查：语法 / 行尾 / 版本号 / 生成物一致性
+  # 阻塞性检查：结构 / 语法 / 行尾 / 版本号 / 通道机制 / 通道读写
   # 这是 main 分支保护规则里要勾选的 required status check
   smoke:
     name: smoke

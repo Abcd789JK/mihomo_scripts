@@ -13,17 +13,18 @@ body:
     attributes:
       label: 脚本版本
       description: 执行 `bash install.sh --version` 或查看文件头 `# ver`
-      placeholder: "2.5.3-beta"
+      placeholder: "2.6.0"
     validations:
       required: true
 
   - type: dropdown
     id: channel
     attributes:
-      label: 使用的通道
+      label: 发布通道
+      description: 安装时使用的通道；菜单状态区「发布通道」也会显示
       options:
-        - 稳定版 mihomo/install.sh
-        - 测试版 mihomo_beta/install.sh
+        - 正式版 main
+        - 测试版 beta
         - 不确定
     validations:
       required: true

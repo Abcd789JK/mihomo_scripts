@@ -9,12 +9,10 @@
 * text=auto eol=lf
 
 # 核心脚本：强制 LF（缺一不可，曾在服务器上踩过 bash\r 的坑）
-mihomo/install.sh        text eol=lf
-mihomo/mihomo.sh         text eol=lf
-mihomo_beta/install.sh   text eol=lf
-mihomo_beta/mihomo.sh    text eol=lf
-tools/sync-mihomo.sh     text eol=lf
-tests/smoke.sh           text eol=lf
+# 两份脚本都在仓库根目录，main / beta 分支结构一致，没有通道子目录。
+install.sh       text eol=lf
+mihomo.sh        text eol=lf
+tests/smoke.sh   text eol=lf
 
 # 根目录资源：会被脚本下载到 Linux 后直接使用。
 # mihomo.service 若带 CRLF，systemd 会把 \r 读进路径导致启动失败。
@@ -41,9 +39,6 @@ mihomo.openrc   text eol=lf
 *.zip   binary
 *.gz    binary
 
-# mihomo/ 是生成物：GitHub 上默认折叠 diff，并标注 generated
-# 不要加 -diff，否则 Git 会把它们当二进制，行尾归一化与三方合并都会失效
-mihomo/*                linguist-generated=true
-mihomo_beta/*           linguist-language=Shell
-tools/*.sh              linguist-language=Shell
-tests/*.sh              linguist-language=Shell
+# 脚本语言标注（GitHub 语言统计用）
+*.sh    linguist-language=Shell
+tests/*.sh  linguist-language=Shell

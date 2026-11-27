@@ -3,15 +3,17 @@
 # --------------------------------------------------
 # name   : install.sh
 # desc   : 一键安装 mihomo 内核、系统服务与管理面板并生成订阅配置
-# date   : 2026-11-04 20:18:53
+# date   : 2026-11-27 16:13:59
 # author : ChatGPT JK789
-# ver    : 2.5.3
+# ver    : 2.6.0
 # --------------------------------------------------
 
-# 与 mihomo.sh 共用 68 个同名函数，改动需同步两份；
+# 与 mihomo.sh 共用同名函数，改动需同步两份；
 # main / usage / print_header 因入口职责不同各自实现，不参与同步。
-# 维护规则：beta 为唯一源，正式版（mihomo/）由 sync-mihomo.sh 自动生成，请勿直接修改正式版；
-# 两者差异只允许是版本号与仓库路径（beta 路径含 _beta，正式版不含）。
+# 仓库结构：两份脚本都在仓库根目录，main 与 beta 分支的目录结构、文件名称完全一致，
+# 正式版与测试版只靠分支区分，不再使用 mihomo/、mihomo_beta/ 之类的重复目录。
+# 发布通道不写死在代码里：安装参数或 channel.txt 决定运行时读取哪个分支的资源，
+# 因此 beta 合入 main 时无需修改任何分支变量或下载地址。
 
 # 必须用 bash 运行：dash/sh 不支持 pipefail、[[ ]] 与进程替换。
 # 该守卫必须早于 set -Eeuo pipefail，否则在 sh 下会先抛出晦涩的 set 报错，
@@ -36,7 +38,7 @@ if (( EUID != 0 )); then
 fi
 
 # 声明当前脚本版本，必须与文件头 ver 完全一致。
-readonly SCRIPT_VERSION="2.5.3"
+readonly SCRIPT_VERSION="2.6.0"
 
 # 收紧新建文件的默认权限：配置与临时文件只允许属主访问。
 umask 077
@@ -55,19 +57,24 @@ readonly SERVICE_SYSTEMD="/etc/systemd/system/mihomo.service"
 readonly SERVICE_OPENRC="/etc/init.d/mihomo"
 readonly SYSCTL_FILE="/etc/sysctl.d/99-ip-forward.conf"
 
-# 通道分支：本文件位于 beta 分支，自更新一律取 beta；
-# tools/sync-mihomo.sh 生成正式版时会把该值改写为 main。
-readonly REPO_BRANCH="main"
-readonly REPO_RAW="https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/refs/heads/${REPO_BRANCH}"
+# 仓库地址与发布通道：通道只在运行期决定，不写死分支，也不随所在分支变化。
+readonly REPO_URL="https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts"
+readonly SHELL_REPO="Abcd789JK/mihomo_scripts"
+readonly RELEASE_DEFAULT="main"
+readonly RELEASE_FILE="${ROOT_DIR}/channel.txt"
 readonly MIHOMO_RELEASE="https://github.com/MetaCubeX/mihomo/releases/download"
 readonly MIHOMO_VERSION_URL="${MIHOMO_RELEASE}/Prerelease-Alpha/version.txt"
 readonly MIHOMO_API="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
 readonly MIHOMO_API_TAGS="https://api.github.com/repos/MetaCubeX/mihomo/releases/tags"
-readonly CONFIG_URL="${REPO_RAW}/mihomo.yaml"
-readonly SERVICE_URL_SYSTEMD="${REPO_RAW}/mihomo.service"
-readonly SERVICE_URL_OPENRC="${REPO_RAW}/mihomo.openrc"
-readonly SHELL_URL="${REPO_RAW}/mihomo/mihomo.sh"
 readonly WEBUI_URL="https://github.com/Zephyruso/zashboard/archive/refs/heads/gh-pages.zip"
+
+# 发布通道与由它派生的资源地址，统一由 apply_release_channel 在下载任何文件之前填充。
+RELEASE_CHANNEL=""
+REPO_RAW=""
+CONFIG_URL=""
+SERVICE_URL_SYSTEMD=""
+SERVICE_URL_OPENRC=""
+SHELL_URL=""
 
 readonly MIRRORS=("https://gh-proxy.com" "https://github.boki.moe")
 # 探测顺序以 GitHub 自身可达性为准，Google 仅作通用连通性兜底。
@@ -83,7 +90,8 @@ init_sys=""
 arch=""
 arch_raw=""
 version=""
-channel=""             # 空=未指定（交互询问，默认 stable）；stable=正式版 / alpha=测试版
+channel=""             # 空=未指定（交互询问，默认 stable）；stable=正式版 / alpha=测试版（内核版本通道）
+release_channel=""     # 空=沿用已保存通道，缺省 main；main=正式版 / beta=测试版（脚本发布通道）
 ipv4=""
 use_cdn=false
 url_prefix=""          # 空 = 直连；非空 = 已验证可用的镜像前缀
@@ -328,6 +336,74 @@ sanitize_yaml() {
     v=${v//\\/\\\\}
     v=${v//\"/\\\"}
     printf '%s' "$v"
+}
+
+# ==================================================
+# 发布通道（main 正式版 / beta 测试版）
+# ==================================================
+
+# 校验发布通道取值，只接受 main 与 beta。
+valid_release_channel() { # $1=通道
+    case "${1:-}" in
+        main|beta) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# 发布通道 → 中文名，用于界面提示。
+release_channel_name() { # $1=通道
+    case "${1:-}" in
+        beta) printf '测试版' ;;
+        *)    printf '正式版' ;;
+    esac
+}
+
+# 按发布通道拼出仓库 Raw 地址与该通道下的资源地址。
+# 脚本自身所在分支不参与判断：分支只决定下载到的文件内容，
+# 运行期一切地址都由通道推导，因此 beta 合入 main 时不需要改代码。
+apply_release_channel() { # $1=通道
+    RELEASE_CHANNEL="$1"
+    REPO_RAW="${REPO_URL}/${RELEASE_CHANNEL}"
+    CONFIG_URL="${REPO_RAW}/mihomo.yaml"
+    SERVICE_URL_SYSTEMD="${REPO_RAW}/mihomo.service"
+    SERVICE_URL_OPENRC="${REPO_RAW}/mihomo.openrc"
+    SHELL_URL="${REPO_RAW}/mihomo.sh"
+}
+
+# 读取已保存的发布通道；文件缺失或内容非法时回退 main 并说明原因。
+# 旧版本没有该文件，回退 main 保证不会静默把正式版用户切到测试版。
+read_release_channel() {
+    local saved=""
+    if [[ -f "$RELEASE_FILE" ]]; then
+        saved="$(tr -d '[:space:]' < "$RELEASE_FILE" 2>/dev/null || true)"
+    fi
+
+    if valid_release_channel "$saved"; then
+        apply_release_channel "$saved"
+        return 0
+    fi
+
+    apply_release_channel "$RELEASE_DEFAULT"
+    if [[ -n "$saved" ]]; then
+        log_warn "发布通道记录无效（${saved}），已按$(release_channel_name "$RELEASE_DEFAULT")处理"
+    else
+        log_warn "未检测到发布通道记录，已按$(release_channel_name "$RELEASE_DEFAULT")处理"
+    fi
+    return 0
+}
+
+# 保存发布通道；写入失败不中断主流程（下次运行仍回退 main），但必须明确告警。
+save_release_channel() {
+    local tmp="${RELEASE_FILE}.tmp"
+
+    if ! printf '%s\n' "$RELEASE_CHANNEL" > "$tmp" 2>/dev/null \
+        || ! mv -f -- "$tmp" "$RELEASE_FILE" 2>/dev/null; then
+        rm -f -- "$tmp" 2>/dev/null || true
+        log_warn "发布通道保存失败：${RELEASE_FILE}（下次运行将按正式版处理）"
+        return 1
+    fi
+    chmod 600 "$RELEASE_FILE" 2>/dev/null || true
+    return 0
 }
 
 # 发行版识别：先按 ID 匹配，再按 ID_LIKE 回退，覆盖各发行版衍生版本。
@@ -2012,6 +2088,13 @@ install_mihomo() {
     step "安装管理脚本"
     install_manager || die "管理脚本安装失败"
 
+    step "记录发布通道"
+    if save_release_channel; then
+        log_success "发布通道：$(release_channel_name "$RELEASE_CHANNEL")（${RELEASE_CHANNEL}）"
+    else
+        log_warn "发布通道未能保存，下次运行将按正式版处理"
+    fi
+
     step "写入配置"
     if (( keep_existing )) && (( $(count_providers "$CONFIG_FILE" 2>/dev/null || printf '0') > 0 )); then
         log_info "检测到已有机场订阅，将保留并刷新默认配置"
@@ -2045,6 +2128,7 @@ install_mihomo() {
     hr
     log_success "安装完成"
     kv "安装目录" "$ROOT_DIR"
+    kv "发布通道" "$(release_channel_name "$RELEASE_CHANNEL")（${RELEASE_CHANNEL}）"
     kv "面板地址" "${COLOR_GREEN}$(panel_url)${COLOR_RESET}"
     if [[ -n "$controller_secret" ]]; then
         kv "面板密钥" "${COLOR_GREEN}${controller_secret}${COLOR_RESET}"
@@ -2066,35 +2150,41 @@ usage() {
     cat <<EOF
 mihomo 一键安装脚本 v${SCRIPT_VERSION}
 
-安装方式（任选其一，curl 与 wget 都可以，有其中一个即可）:
+发布通道（决定安装、更新、重装时从哪个分支取脚本与配套文件）:
+  main  正式版（默认）
+  beta  测试版
 
-  curl:
-    curl -fsSL -o install.sh ${REPO_RAW}/mihomo/install.sh
-    bash install.sh
+安装方式：
 
-  wget:
-    wget -qO install.sh ${REPO_RAW}/mihomo/install.sh
-    bash install.sh
+  正式版：
+    bash <(curl -fsSL ${REPO_URL}/main/install.sh) main
 
-  国内网络慢可换 jsDelivr CDN:
-    curl -fsSL -o install.sh https://cdn.jsdelivr.net/gh/Abcd789JK/mihomo_scripts@${REPO_BRANCH}/mihomo/install.sh
-    bash install.sh
+  测试版：
+    bash <(curl -fsSL ${REPO_URL}/beta/install.sh) beta
 
-  也可以直接管道执行（非交互，全部取默认值）:
-    curl -fsSL ${REPO_RAW}/mihomo/install.sh | bash
+  也可以先下载再执行（curl / wget 有其一即可）：
+    curl -fsSL -o install.sh ${REPO_URL}/main/install.sh
+    bash install.sh main
+
+  国内网络慢可换 jsDelivr CDN（把 @main 换成 @beta 即测试版）：
+    curl -fsSL -o install.sh https://cdn.jsdelivr.net/gh/${SHELL_REPO}@main/install.sh
+    bash install.sh main
 
   安装成功后会删除本次运行的 install.sh（源码目录内运行、或管道执行时不会删）。
 
-用法: bash install.sh [选项]
+用法: bash install.sh [main|beta] [选项]
 
 选项:
   -h, --help           显示帮助
   -v, --version        显示版本
-  --channel stable     安装正式版（如 v1.19.32）
-  --channel alpha      安装测试版（如 alpha-94b13ae）
+  --channel stable     安装正式版内核（如 v1.19.32）
+  --channel alpha      安装测试版内核（如 alpha-94b13ae）
 
 说明:
-  不指定 --channel 时会在安装前询问，默认正式版。
+  位置参数是脚本发布通道，省略时沿用已保存的通道，没有记录则用正式版 main。
+  发布通道只影响脚本与配套文件从哪个分支获取；--channel 决定安装哪个 mihomo
+  内核版本，两者互不影响。
+  不指定 --channel 时会在安装前询问，默认正式版内核。
   安装成功后自动删除本次运行的 install.sh，避免残留；安装失败时保留以便重试。
   支持 apt / dnf(yum) / pacman / apk / zypper 系发行版：
     Debian、Ubuntu 及其衍生版（Mint、Kali、Armbian 等）
@@ -2124,19 +2214,35 @@ parse_args() {
                 channel="${1#*=}"
                 shift
                 ;;
-            *)
+            -*)
                 log_error "未知参数：$1"
                 usage
                 # 参数错误统一使用退出码 2，与通用错误（1）区分。
                 exit 2
+                ;;
+            *)
+                # 位置参数 = 脚本发布通道（main / beta），只允许出现一次。
+                if [[ -n "$release_channel" ]]; then
+                    log_error "发布通道只能指定一次（已指定：${release_channel}）"
+                    exit 2
+                fi
+                release_channel="$1"
+                shift
                 ;;
         esac
     done
 
     case "$channel" in
         ""|stable|alpha) ;;
-        *) die "无效的通道：${channel}（可选 stable / alpha）" ;;
+        *) die "无效的内核版本通道：${channel}（可选 stable / alpha）" ;;
     esac
+
+    # 发布通道必须严格校验：非法值直接拒绝，不猜测、不回退。
+    if [[ -n "$release_channel" ]] && ! valid_release_channel "$release_channel"; then
+        log_error "无效的发布通道：${release_channel}（可选 main / beta）"
+        usage
+        exit 2
+    fi
 }
 
 # 未通过 --channel 指定且处于交互终端时，询问安装通道。
@@ -2172,6 +2278,18 @@ main() {
     parse_args "$@"
     resolve_self_path     # 必须在任何 cd 之前解析 $0，供安装成功后自删除使用
     print_script_header
+
+    # 位置参数优先；未指定时沿用已保存通道。全新安装没有记录属于正常情况，
+    # 直接取默认 main（不告警）；有记录但内容非法时才由 read_release_channel 告警。
+    if [[ -n "$release_channel" ]]; then
+        apply_release_channel "$release_channel"
+    elif [[ -f "$RELEASE_FILE" ]]; then
+        read_release_channel
+    else
+        apply_release_channel "$RELEASE_DEFAULT"
+    fi
+    log_info "发布通道：$(release_channel_name "$RELEASE_CHANNEL")（${RELEASE_CHANNEL}）"
+
     choose_channel        # 未指定 --channel 时交互询问，默认正式版
     install_mihomo
 }

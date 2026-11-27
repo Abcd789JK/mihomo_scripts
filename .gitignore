@@ -49,7 +49,6 @@ logs/
 *.rej
 *.tmp
 *.temp
-.sync-mihomo.*
 tmp/
 .tmp/
 *.swp

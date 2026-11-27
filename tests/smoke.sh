@@ -1,12 +1,12 @@
 # --------------------------------------------------
 # name   : tests/smoke.sh
-# desc   : 静态自检 —— 资源 / 语法 / 行尾 / 版本 / 通道分支 / 生成物一致性
+# desc   : 静态自检 —— 结构 / 语法 / 行尾 / 版本 / 通道机制 / 通道读写
 #          不安装、不改系统、不需要 root，本地与 CI 共用同一份
 # usage  : bash tests/smoke.sh
 # 分支模型：
-#   main = 正式版（只有 mihomo/，无 mihomo_beta/）
-#   beta = 测试版（mihomo_beta/ 为源，mihomo/ 为同步预览）
-#   脚本按目录是否存在自动切换检查项，两个分支都能跑同一份 smoke。
+#   main = 正式版，beta = 测试版；两个分支目录结构、文件名称完全一致，
+#   脚本都在仓库根目录，通道只由运行期参数与 channel.txt 决定。
+#   因此本脚本不区分分支，同一份检查在两个分支都必须通过。
 # --------------------------------------------------
 
 # 必须用 bash 运行：dash/sh 不支持 [[ ]] 与数组。
@@ -19,18 +19,8 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly ROOT_DIR
-readonly BETA_DIR="${ROOT_DIR}/mihomo_beta"
-readonly STABLE_DIR="${ROOT_DIR}/mihomo"
 readonly -a FILES=(install.sh mihomo.sh)
 readonly -a ASSETS=(mihomo.yaml mihomo.service mihomo.openrc)
-
-# beta 目录存在 → beta 分支；否则视为 main（正式版）分支。
-if [[ -d "$BETA_DIR" ]]; then
-    BRANCH="beta"
-else
-    BRANCH="main"
-fi
-readonly BRANCH
 
 FAILED=0
 ok()  { printf '  \033[32m[ OK ]\033[0m %s\n' "$*"; }
@@ -45,26 +35,6 @@ read_versions() { # $1=文件
     const="$(awk -F'"' '/^readonly SCRIPT_VERSION=/ { print $2; exit }' "$1")"
     printf '%s %s\n' "$header" "$const"
 }
-
-# 断言某目录下的脚本绑定到指定分支，且不残留另一分支的地址。
-assert_channel() { # $1=目录 $2=期望分支 $3=禁止分支
-    local dir=$1 want=$2 forbid=$3 f
-    for f in "${FILES[@]}"; do
-        [[ -f "${dir}/${f}" ]] || continue
-        if grep -Fq "readonly REPO_BRANCH=\"${want}\"" "${dir}/${f}"; then
-            ok "${f} 绑定 ${want} 分支"
-        else
-            bad "${f} 未绑定 ${want} 分支（应为 readonly REPO_BRANCH=\"${want}\"）"
-        fi
-        if grep -q "refs/heads/${forbid}" "${dir}/${f}"; then
-            bad "${f} 残留 refs/heads/${forbid} 地址"
-        else
-            ok "${f} 无 ${forbid} 分支地址残留"
-        fi
-    done
-}
-
-printf '\n分支：%s\n' "$BRANCH"
 
 # ---------- 1. 根目录资源 ----------
 # install.sh 通过 CONFIG_URL / SERVICE_URL_* 从仓库根目录下载，缺失即安装失败。
@@ -82,194 +52,240 @@ for a in "${ASSETS[@]}"; do
     fi
 done
 
-# ---------- 2. 文件完整性 ----------
-title '2/8 文件完整性'
+# ---------- 2. 目录结构 ----------
+title '2/8 目录结构（根目录单一来源）'
 for f in "${FILES[@]}"; do
-    if [[ -f "${STABLE_DIR}/${f}" ]]; then
-        ok "存在 mihomo/${f}"
+    if [[ -f "${ROOT_DIR}/${f}" ]]; then
+        ok "存在 ${f}"
     else
-        bad "缺失 mihomo/${f}"
+        bad "缺失 ${f}"
     fi
-    if [[ "$BRANCH" == "beta" ]]; then
-        if [[ -f "${BETA_DIR}/${f}" ]]; then
-            ok "存在 mihomo_beta/${f}"
-        else
-            bad "缺失 mihomo_beta/${f}"
-        fi
+done
+for d in mihomo mihomo_beta tools; do
+    if [[ -d "${ROOT_DIR}/${d}" ]]; then
+        bad "存在旧目录 ${d}/（通道改由分支承载，不应再出现）"
+    else
+        ok "无旧目录 ${d}/"
     fi
 done
 
 # ---------- 3. 语法 ----------
 title '3/8 bash 语法'
 for f in "${FILES[@]}"; do
-    for d in "$STABLE_DIR" "$BETA_DIR"; do
-        [[ -f "${d}/${f}" ]] || continue
-        if bash -n "${d}/${f}" 2>/dev/null; then
-            ok "语法 ${d#"$ROOT_DIR"/}/${f}"
-        else
-            bad "语法 ${d#"$ROOT_DIR"/}/${f}"
-        fi
-    done
+    [[ -f "${ROOT_DIR}/${f}" ]] || continue
+    if bash -n "${ROOT_DIR}/${f}" 2>/dev/null; then
+        ok "语法 ${f}"
+    else
+        bad "语法 ${f}"
+    fi
 done
 
 # ---------- 4. 行尾 ----------
 title '4/8 行尾必须为 LF'
 for f in "${FILES[@]}"; do
-    for d in "$STABLE_DIR" "$BETA_DIR"; do
-        [[ -f "${d}/${f}" ]] || continue
-        if [[ "$(tr -cd '\r' < "${d}/${f}" | wc -c | tr -d ' ')" -eq 0 ]]; then
-            ok "LF ${d#"$ROOT_DIR"/}/${f}"
-        else
-            bad "含 CRLF ${d#"$ROOT_DIR"/}/${f}（会触发环境报 'bash\\r' 不存在）"
-        fi
-    done
+    [[ -f "${ROOT_DIR}/${f}" ]] || continue
+    if [[ "$(tr -cd '\r' < "${ROOT_DIR}/${f}" | wc -c | tr -d ' ')" -eq 0 ]]; then
+        ok "LF ${f}"
+    else
+        bad "含 CRLF ${f}（会触发环境报 'bash\\r' 不存在）"
+    fi
 done
 
 # ---------- 5. 版本号 ----------
 title '5/8 版本号一致性'
-if [[ "$BRANCH" == "beta" ]]; then
-    BETA_VERSION=""
-    for f in "${FILES[@]}"; do
-        [[ -f "${BETA_DIR}/${f}" ]] || continue
-        read -r header const <<<"$(read_versions "${BETA_DIR}/${f}")"
-        if [[ -z "$header" || -z "$const" ]]; then
-            bad "${f} 无法读取版本号"
-            continue
-        fi
-        if [[ "$header" == "$const" ]]; then
-            ok "${f} beta 版本一致：${const}"
-        else
-            bad "${f} 头部 ${header} ≠ 常量 ${const}"
-        fi
-        if [[ "$const" != *-beta ]]; then
-            bad "${f} beta 版本 '${const}' 未以 -beta 结尾"
-        fi
-        if [[ -z "$BETA_VERSION" ]]; then
-            BETA_VERSION="$const"
-        elif [[ "$BETA_VERSION" != "$const" ]]; then
-            bad "两个 beta 文件版本不一致：${BETA_VERSION} vs ${const}"
-        fi
-    done
-    EXPECT_STABLE="${BETA_VERSION%-beta}"
-else
-    # main 上无 beta 源，直接以正式版自身为基准。
-    EXPECT_STABLE=""
-    for f in "${FILES[@]}"; do
-        [[ -f "${STABLE_DIR}/${f}" ]] || continue
-        read -r header const <<<"$(read_versions "${STABLE_DIR}/${f}")"
-        if [[ -n "$header" && "$header" == "$const" && "$const" != *-beta ]]; then
-            ok "${f} 正式版版本一致：${const}"
-        else
-            bad "${f} 版本应一致且不含 -beta，实际 header='${header}' const='${const}'"
-        fi
-        if [[ -z "$EXPECT_STABLE" ]]; then
-            EXPECT_STABLE="$const"
-        elif [[ "$EXPECT_STABLE" != "$const" ]]; then
-            bad "两个正式版文件版本不一致：${EXPECT_STABLE} vs ${const}"
-        fi
-    done
-fi
-
-if [[ "$BRANCH" == "beta" && -n "$EXPECT_STABLE" ]]; then
-    for f in "${FILES[@]}"; do
-        [[ -f "${STABLE_DIR}/${f}" ]] || continue
-        read -r header const <<<"$(read_versions "${STABLE_DIR}/${f}")"
-        if [[ "$header" == "$EXPECT_STABLE" && "$const" == "$EXPECT_STABLE" ]]; then
-            ok "${f} 稳定版版本为 ${EXPECT_STABLE}"
-        else
-            bad "${f} 稳定版版本应为 ${EXPECT_STABLE}，实际 header='${header}' const='${const}'"
-        fi
-    done
-fi
-
-# ---------- 6. 通道分支绑定 ----------
-title '6/8 通道分支绑定'
-assert_channel "$STABLE_DIR" "main" "beta"
-if [[ "$BRANCH" == "beta" ]]; then
-    assert_channel "$BETA_DIR" "beta" "main"
-fi
-
-# 正式版必须能从根目录取到三份资源，且不得引用 mihomo_beta/（main 上不存在）。
+EXPECT_VERSION=""
 for f in "${FILES[@]}"; do
-    [[ -f "${STABLE_DIR}/${f}" ]] || continue
-    if grep -q 'mihomo_beta' "${STABLE_DIR}/${f}"; then
-        bad "${f} 残留 mihomo_beta 路径（main 上不存在该目录）"
-    else
-        ok "${f} 无 beta 路径残留"
+    [[ -f "${ROOT_DIR}/${f}" ]] || continue
+    read -r header const <<<"$(read_versions "${ROOT_DIR}/${f}")"
+    if [[ -z "$header" || -z "$const" ]]; then
+        bad "${f} 无法读取版本号"
+        continue
     fi
-    # 资源地址必须在仓库根目录；只对真正出现该地址的文件做正向断言，
-    # 避免把 "systemctl status mihomo.service" 这类似是而非的字符串误判。
-    for a in "${ASSETS[@]}"; do
-        if grep -Fq "\${REPO_RAW}/${a}" "${STABLE_DIR}/${f}"; then
-            ok "${f} 资源地址 ${a} 指向根目录"
-        fi
-    done
-    if grep -Fq '${REPO_RAW}/Config/' "${STABLE_DIR}/${f}" \
-        || grep -Fq '${REPO_RAW}/Service/' "${STABLE_DIR}/${f}"; then
-        bad "${f} 资源地址仍指向 Config/ 或 Service/ 子目录"
-    else
-        ok "${f} 无旧子目录资源地址"
+    if [[ "$header" != "$const" ]]; then
+        bad "${f} 头部 ${header} ≠ 常量 ${const}"
+        continue
+    fi
+    # 通道由分支承载，版本号不再带 -beta：合入 main 时无需改代码
+    if [[ "$const" == *-beta ]]; then
+        bad "${f} 版本 '${const}' 仍带 -beta 后缀（通道已改由分支承载）"
+        continue
+    fi
+    ok "${f} 版本一致：${const}"
+    if [[ -z "$EXPECT_VERSION" ]]; then
+        EXPECT_VERSION="$const"
+    elif [[ "$EXPECT_VERSION" != "$const" ]]; then
+        bad "两个脚本版本不一致：${EXPECT_VERSION} vs ${const}"
     fi
 done
 
-# ---------- 7. 生成物一致性（仅 beta 分支）----------
-title '7/8 生成物与 beta 源一致'
-if [[ "$BRANCH" != "beta" ]]; then
-    ok "main 分支不含 mihomo_beta/，跳过（正式版为发布产物）"
-elif [[ -z "${EXPECT_STABLE:-}" ]]; then
-    bad "无法确定版本号，跳过生成物比对"
-else
-    # 按生成规则即时渲染，不落临时文件：三条规则必须与 sync-mihomo.sh 完全一致。
-    render_stable() {
-        sed -e "s/${BETA_VERSION}/${EXPECT_STABLE}/g" \
-            -e 's#mihomo_beta#mihomo#g' \
-            -e 's#REPO_BRANCH="beta"#REPO_BRANCH="main"#g' \
-            "${BETA_DIR}/$1"
-    }
-    for f in "${FILES[@]}"; do
-        if [[ ! -f "${STABLE_DIR}/${f}" ]]; then
-            bad "缺少稳定版 ${f}"
-        elif diff -q <(render_stable "$f") "${STABLE_DIR}/${f}" >/dev/null 2>&1; then
-            ok "${f} 与 beta 源一致"
+# ---------- 6. 通道机制 ----------
+title '6/8 通道机制（无硬编码分支）'
+for f in "${FILES[@]}"; do
+    [[ -f "${ROOT_DIR}/${f}" ]] || continue
+
+    if grep -qE '^readonly REPO_URL="https://raw\.githubusercontent\.com/Abcd789JK/mihomo_scripts"$' "${ROOT_DIR}/${f}"; then
+        ok "${f} 含仓库基础地址 REPO_URL"
+    else
+        bad "${f} 缺少 REPO_URL 基础地址"
+    fi
+
+    # 分支名不得出现在代码里：一旦写死，beta → main 合并后仍会去取旧分支
+    if grep -nE 'REPO_BRANCH|refs/heads/(main|beta)' "${ROOT_DIR}/${f}" >/dev/null 2>&1; then
+        bad "${f} 硬编码了分支（REPO_BRANCH 或 refs/heads/<分支>）"
+    else
+        ok "${f} 无硬编码分支"
+    fi
+
+    # 资源地址必须由通道派生，且落在仓库根目录
+    if grep -qE '^\s*(SHELL|INSTALL|CONFIG)_URL="\$\{REPO_RAW\}/' "${ROOT_DIR}/${f}"; then
+        ok "${f} 资源地址由 REPO_RAW 派生"
+    else
+        bad "${f} 资源地址未由 REPO_RAW 派生"
+    fi
+    if grep -qE '\$\{REPO_RAW\}/(mihomo|mihomo_beta)/' "${ROOT_DIR}/${f}"; then
+        bad "${f} 资源地址仍指向 mihomo/ 或 mihomo_beta/ 子目录"
+    else
+        ok "${f} 资源地址无旧子目录"
+    fi
+
+    for fn in valid_release_channel release_channel_name apply_release_channel read_release_channel save_release_channel; do
+        if grep -q "^${fn}()" "${ROOT_DIR}/${f}"; then
+            ok "${f} 含函数 ${fn}"
         else
-            bad "${f} 与实际生成结果不一致 —— 请运行 bash tools/sync-mihomo.sh"
-            diff -u <(render_stable "$f") "${STABLE_DIR}/${f}" | head -20 >&2 || true
+            bad "${f} 缺少函数 ${fn}"
         fi
     done
+
+    for a in "${ASSETS[@]}"; do
+        if [[ "$a" == "mihomo.yaml" ]] || [[ "$f" == "install.sh" ]]; then
+            grep -Fq "\${REPO_RAW}/${a}" "${ROOT_DIR}/${f}" || bad "${f} 未引用根目录资源 ${a}"
+        fi
+    done
+done
+
+# install.sh：位置参数即发布通道，且必须严格校验
+if grep -q '无效的发布通道' "${ROOT_DIR}/install.sh"; then
+    ok 'install.sh 校验发布通道参数'
+else
+    bad 'install.sh 未校验发布通道参数'
+fi
+if grep -q 'save_release_channel' "${ROOT_DIR}/install.sh"; then
+    ok 'install.sh 安装后保存通道'
+else
+    bad 'install.sh 未保存通道'
+fi
+# mihomo.sh：启动读取通道，重装把通道透传给安装脚本
+if grep -q 'read_release_channel' "${ROOT_DIR}/mihomo.sh"; then
+    ok 'mihomo.sh 启动读取通道'
+else
+    bad 'mihomo.sh 未读取通道'
+fi
+if grep -q 'bash "$tmp" "$RELEASE_CHANNEL"' "${ROOT_DIR}/mihomo.sh"; then
+    ok 'mihomo.sh 重装透传通道'
+else
+    bad 'mihomo.sh 重装未透传通道'
+fi
+
+# ---------- 7. 通道读写的实际执行 ----------
+# 把两份脚本里的通道函数抽出来，在隔离临时目录里真跑一遍：
+# 保存 → 读回 → 缺文件回退 main → 非法内容回退 main。
+title '7/8 通道读写实际执行'
+WORK_DIR="$(mktemp -d 2>/dev/null || true)"
+if [[ -z "$WORK_DIR" || ! -d "$WORK_DIR" ]]; then
+    warn '无法创建临时目录，跳过通道读写检查'
+else
+    for f in "${FILES[@]}"; do
+        [[ -f "${ROOT_DIR}/${f}" ]] || continue
+        block="${WORK_DIR}/block-${f}.sh"
+        sed -n '/^# 发布通道（main 正式版/,/^# 发行版识别/p' "${ROOT_DIR}/${f}" | sed '$d' > "$block"
+        if [[ ! -s "$block" ]]; then
+            bad "${f} 未找到发布通道函数块（注释锚点被改动？）"
+            continue
+        fi
+
+        # 隔离执行：只加载函数块 + 常量与日志桩，RELEASE_FILE 指向临时目录
+        ch_run() {
+            bash -c '
+                set -Eeuo pipefail
+                REPO_URL="https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts"
+                RELEASE_DEFAULT="main"
+                RELEASE_FILE="$2/channel.txt"
+                RELEASE_CHANNEL=""; REPO_RAW=""; CONFIG_URL=""; SHELL_URL=""; INSTALL_URL=""
+                SERVICE_URL_SYSTEMD=""; SERVICE_URL_OPENRC=""
+                log_warn() { printf "WARN:%s\n" "$*" >&2; }
+                source "$1"
+                shift 2
+                eval "$*"
+            ' _ "$block" "$WORK_DIR" "$1"
+        }
+
+        # 通道 → 地址推导
+        if [[ "$(ch_run 'apply_release_channel beta; printf "%s" "$SHELL_URL"' 2>/dev/null)" \
+            == "https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/beta/mihomo.sh" ]]; then
+            ok "${f} beta 通道地址推导正确"
+        else
+            bad "${f} beta 通道地址推导异常"
+        fi
+
+        # 保存 → 读回
+        ch_run 'apply_release_channel beta; save_release_channel' >/dev/null 2>&1 || bad "${f} 保存通道失败"
+        if [[ "$(ch_run 'read_release_channel; printf "%s" "$RELEASE_CHANNEL"' 2>/dev/null)" == "beta" ]]; then
+            ok "${f} 通道保存后可读回"
+        else
+            bad "${f} 通道读回失败"
+        fi
+
+        # 缺文件 → main + 告警
+        mv -f "${WORK_DIR}/channel.txt" "${WORK_DIR}/channel.bak" 2>/dev/null || true
+        out="$(ch_run 'read_release_channel; printf "%s" "$RELEASE_CHANNEL"' 2>&1)"
+        case "$out" in
+            *WARN*main*) ok "${f} 缺记录时回退 main 并告警" ;;
+            *) bad "${f} 缺记录时未正确回退（${out//$'\n'/ }）" ;;
+        esac
+
+        # 内容非法 → main + 告警
+        printf 'weird\n' > "${WORK_DIR}/channel.txt"
+        out="$(ch_run 'read_release_channel; printf "%s" "$RELEASE_CHANNEL"' 2>&1)"
+        case "$out" in
+            *WARN*main*) ok "${f} 非法记录时回退 main 并告警" ;;
+            *) bad "${f} 非法记录时未正确回退（${out//$'\n'/ }）" ;;
+        esac
+
+        mv -f "${WORK_DIR}/channel.txt" "${WORK_DIR}/channel.bak2" 2>/dev/null || true
+    done
+    # 清理由本脚本创建的临时目录：先切进去用相对名删除，避免绝对盘符路径
+    ( cd "$WORK_DIR" && rm -f ./* 2>/dev/null || true )
+    rmdir "$WORK_DIR" 2>/dev/null || true
 fi
 
 # ---------- 8. 可执行位与 shellcheck ----------
 title '8/8 可执行位 / shellcheck'
 for f in "${FILES[@]}"; do
-    for d in "$STABLE_DIR" "$BETA_DIR"; do
-        [[ -f "${d}/${f}" ]] || continue
-        if [[ -x "${d}/${f}" ]]; then
-            ok "可执行 ${d#"$ROOT_DIR"/}/${f}"
-        else
-            warn "不可执行 ${d#"$ROOT_DIR"/}/${f}（建议 chmod +x）"
-        fi
-    done
+    [[ -f "${ROOT_DIR}/${f}" ]] || continue
+    if [[ -x "${ROOT_DIR}/${f}" ]]; then
+        ok "可执行 ${f}"
+    else
+        warn "不可执行 ${f}（建议 chmod +x）"
+    fi
 done
 
 if command -v shellcheck >/dev/null 2>&1; then
     for f in "${FILES[@]}"; do
-        for d in "$STABLE_DIR" "$BETA_DIR"; do
-            [[ -f "${d}/${f}" ]] || continue
-            if shellcheck -S error -x "${d}/${f}" >/dev/null 2>&1; then
-                ok "shellcheck ${d#"$ROOT_DIR"/}/${f}"
-            else
-                bad "shellcheck 报 error ${d#"$ROOT_DIR"/}/${f}"
-            fi
-        done
+        [[ -f "${ROOT_DIR}/${f}" ]] || continue
+        if shellcheck -S error -x "${ROOT_DIR}/${f}" >/dev/null 2>&1; then
+            ok "shellcheck ${f}"
+        else
+            bad "shellcheck 报 error ${f}"
+        fi
     done
 else
-    warn "未安装 shellcheck，跳过该检查（CI 中会执行）"
+    warn '未安装 shellcheck，跳过该检查（CI 中会执行）'
 fi
 
 # ---------- 汇总 ----------
 printf '\n'
 if (( FAILED == 0 )); then
-    printf '\033[32m%s\033[0m\n' "[ PASS ] 全部检查通过（${BRANCH} 分支，版本 ${EXPECT_STABLE:-unknown}）"
+    printf '\033[32m%s\033[0m\n' "[ PASS ] 全部检查通过（版本 ${EXPECT_VERSION:-unknown}）"
     exit 0
 fi
 printf '\033[31m%s\033[0m\n' "[FAILED] ${FAILED} 项检查未通过"

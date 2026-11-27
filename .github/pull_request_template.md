@@ -6,15 +6,15 @@
 
 - [ ] 功能新增（feat）
 - [ ] 缺陷修复（fix）
-- [ ] 脚本同步 / 生成物更新
 - [ ] 文档、CI、仓库配置
 - [ ] 破坏性变更（需在下方说明影响与迁移方式）
 
 ## 自检清单
 
-- [ ] 只修改了 `mihomo_beta/`，`mihomo/` 由 `bash tools/sync-mihomo.sh` 生成
+- [ ] 改动只提交到 `beta` 分支，未直接修改 `main`
 - [ ] 已运行 `bash tests/smoke.sh`，全部通过
-- [ ] 版本号已同步更新：文件头 `# ver` 与 `readonly SCRIPT_VERSION` 一致，且带 `-beta` 后缀
+- [ ] 版本号已同步更新：文件头 `# ver` 与 `readonly SCRIPT_VERSION` 一致，且不带 `-beta` 后缀（通道由分支承载）
+- [ ] 发布通道机制未被破坏：脚本内没有写死分支名，资源地址仍由 `REPO_RAW` 派生
 - [ ] 已实机验证：安装 → 启动 → 切换节点 → 查看日志 → 卸载
 - [ ] 新增/变更的路径、依赖、命令已同步到 `README.md`
 - [ ] `CHANGELOG.md` 已追加条目（如涉及用户可见变更）

@@ -3,15 +3,17 @@
 # --------------------------------------------------
 # name   : mihomo.sh
 # desc   : mihomo 内核与订阅配置的交互式管理脚本
-# date   : 2026-11-04 20:18:53
+# date   : 2026-11-27 16:13:59
 # author : ChatGPT JK789
-# ver    : 2.5.3-beta
+# ver    : 2.6.0
 # --------------------------------------------------
 
-# 与 install.sh 共用 68 个同名函数，改动需同步两份；
+# 与 install.sh 共用同名函数，改动需同步两份；
 # main / print_header 因入口职责不同各自实现，不参与同步。
-# 维护规则：beta 为唯一源，正式版（mihomo/）由 sync-mihomo.sh 自动生成，请勿直接修改正式版；
-# 两者差异只允许是版本号与仓库路径（beta 路径含 _beta，正式版不含）。
+# 仓库结构：两份脚本都在仓库根目录，main 与 beta 分支的目录结构、文件名称完全一致，
+# 正式版与测试版只靠分支区分，不再使用 mihomo/、mihomo_beta/ 之类的重复目录。
+# 发布通道不写死在代码里：启动时读取 channel.txt（缺省 main），
+# 自更新、重装与版本查询都按该通道取资源，因此 beta 合入 main 时无需改代码。
 
 # 必须用 bash 运行：dash/sh 不支持 pipefail、[[ ]] 与进程替换。
 # 该守卫必须早于 set -Eeuo pipefail，否则在 sh 下会先抛出晦涩的 set 报错，
@@ -36,7 +38,7 @@ if (( EUID != 0 )); then
 fi
 
 # 声明当前脚本版本，必须与文件头 ver 完全一致。
-readonly SCRIPT_VERSION="2.5.3-beta"
+readonly SCRIPT_VERSION="2.6.0"
 
 # 收紧新建文件的默认权限：配置、日志和临时文件只允许属主访问。
 umask 077
@@ -62,19 +64,23 @@ readonly LOGCLEAN_SERVICE="/etc/systemd/system/mihomo-logclean.service"
 readonly LOGCLEAN_TIMER="/etc/systemd/system/mihomo-logclean.timer"
 readonly LOGCLEAN_PERIODIC="/etc/periodic/daily/mihomo-logclean"
 
-# 通道分支：本文件位于 beta 分支，自更新一律取 beta；
-# tools/sync-mihomo.sh 生成正式版时会把该值改写为 main。
-readonly REPO_BRANCH="beta"
-readonly REPO_RAW="https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/refs/heads/${REPO_BRANCH}"
+# 仓库地址与发布通道：通道只在运行期决定，不写死分支，也不随所在分支变化。
+readonly REPO_URL="https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts"
 readonly SHELL_REPO="Abcd789JK/mihomo_scripts"
+readonly RELEASE_DEFAULT="main"
+readonly RELEASE_FILE="${ROOT_DIR}/channel.txt"
 readonly MIHOMO_RELEASE="https://github.com/MetaCubeX/mihomo/releases/download"
 readonly MIHOMO_VERSION_URL="${MIHOMO_RELEASE}/Prerelease-Alpha/version.txt"
 readonly MIHOMO_API="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
 readonly MIHOMO_API_TAGS="https://api.github.com/repos/MetaCubeX/mihomo/releases/tags"
-readonly CONFIG_URL="${REPO_RAW}/mihomo.yaml"
-readonly SHELL_URL="${REPO_RAW}/mihomo_beta/mihomo.sh"
-readonly INSTALL_URL="${REPO_RAW}/mihomo_beta/install.sh"
 readonly WEBUI_URL="https://github.com/Zephyruso/zashboard/archive/refs/heads/gh-pages.zip"
+
+# 发布通道与由它派生的资源地址，统一由 apply_release_channel 在下载任何文件之前填充。
+RELEASE_CHANNEL=""
+REPO_RAW=""
+CONFIG_URL=""
+SHELL_URL=""
+INSTALL_URL=""
 
 readonly MIRRORS=("https://gh-proxy.com" "https://github.boki.moe")
 # 探测顺序以 GitHub 自身可达性为准，Google 仅作通用连通性兜底。
@@ -325,6 +331,73 @@ confirm() { # $1=提示语 $2=默认值
     read_input ans "${COLOR_CYAN}${prompt}${COLOR_RESET} "
     ans=${ans:-$def}
     [[ "$ans" =~ ^[Yy] ]]
+}
+
+# ==================================================
+# 发布通道（main 正式版 / beta 测试版）
+# ==================================================
+
+# 校验发布通道取值，只接受 main 与 beta。
+valid_release_channel() { # $1=通道
+    case "${1:-}" in
+        main|beta) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# 发布通道 → 中文名，用于界面提示。
+release_channel_name() { # $1=通道
+    case "${1:-}" in
+        beta) printf '测试版' ;;
+        *)    printf '正式版' ;;
+    esac
+}
+
+# 按发布通道拼出仓库 Raw 地址与该通道下的资源地址。
+# 脚本自身所在分支不参与判断：分支只决定下载到的文件内容，
+# 运行期一切地址都由通道推导，因此 beta 合入 main 时不需要改代码。
+apply_release_channel() { # $1=通道
+    RELEASE_CHANNEL="$1"
+    REPO_RAW="${REPO_URL}/${RELEASE_CHANNEL}"
+    CONFIG_URL="${REPO_RAW}/mihomo.yaml"
+    SHELL_URL="${REPO_RAW}/mihomo.sh"
+    INSTALL_URL="${REPO_RAW}/install.sh"
+}
+
+# 读取已保存的发布通道；文件缺失或内容非法时回退 main 并说明原因。
+# 旧版本没有该文件，回退 main 保证不会静默把正式版用户切到测试版。
+read_release_channel() {
+    local saved=""
+    if [[ -f "$RELEASE_FILE" ]]; then
+        saved="$(tr -d '[:space:]' < "$RELEASE_FILE" 2>/dev/null || true)"
+    fi
+
+    if valid_release_channel "$saved"; then
+        apply_release_channel "$saved"
+        return 0
+    fi
+
+    apply_release_channel "$RELEASE_DEFAULT"
+    if [[ -n "$saved" ]]; then
+        log_warn "发布通道记录无效（${saved}），已按$(release_channel_name "$RELEASE_DEFAULT")处理"
+    else
+        log_warn "未检测到发布通道记录，已按$(release_channel_name "$RELEASE_DEFAULT")处理"
+    fi
+    return 0
+}
+
+# 保存发布通道；写入失败不中断主流程（下次运行仍回退 main），但必须明确告警。
+save_release_channel() {
+    local tmp="${RELEASE_FILE}.tmp"
+
+    if ! printf '%s\n' "$RELEASE_CHANNEL" > "$tmp" 2>/dev/null \
+        || ! mv -f -- "$tmp" "$RELEASE_FILE" 2>/dev/null; then
+        rm -f -- "$tmp" 2>/dev/null || true
+        log_warn "发布通道保存失败：${RELEASE_FILE}（下次运行将按正式版处理）"
+        return 1
+    fi
+    chmod 600 "$RELEASE_FILE" 2>/dev/null || true
+    return 0
 }
 
 # 发行版识别：先按 ID 匹配，再按 ID_LIKE 回退，覆盖各发行版衍生版本。
@@ -962,6 +1035,7 @@ check_installation() {
 # 打印安装、运行、自启与版本等状态面板。
 show_status() {
     local install_status run_status auto_start software_version update_time script_path
+    local release_text
     detect_network_info
 
     script_path=$(command -v mihomo 2>/dev/null || true)
@@ -1016,6 +1090,13 @@ show_status() {
         chan=$(channel_name "$(detect_channel "$software_version")")
         kv "版本通道" "${COLOR_GREEN}${chan}${COLOR_RESET}"
     fi
+    # 发布通道是脚本自身的来源分支，与上面的内核版本通道互不影响
+    if [[ "$RELEASE_CHANNEL" == 'beta' ]]; then
+        release_text="${COLOR_YELLOW}$(release_channel_name "$RELEASE_CHANNEL")（${RELEASE_CHANNEL}）${COLOR_RESET}"
+    else
+        release_text="${COLOR_GREEN}$(release_channel_name "$RELEASE_CHANNEL")（${RELEASE_CHANNEL}）${COLOR_RESET}"
+    fi
+    kv "发布通道" "$release_text"
     kv "本机IPv4" "${COLOR_GREEN}${ipv4}${COLOR_RESET}"
     # 无 IPv6 时用默认色：绿色是成功色，"无"不是成功状态
     if [[ -n "${ipv6:-}" ]]; then
@@ -2182,7 +2263,9 @@ reinstall_mihomo() {
         return 1
     fi
 
-    if bash "$tmp"; then
+    # 显式传入当前发布通道：安装脚本据此从同一分支取管理脚本与配套文件，
+    # 重装不会把测试版机器带回正式版，也不会把正式版机器切到测试版。
+    if bash "$tmp" "$RELEASE_CHANNEL"; then
         rm -f -- "$tmp"
         # 旧目录保留：其中的 config.yaml 可能含用户尚未取回的订阅，交由用户确认后删除
         if [[ -d "$old" ]]; then
@@ -2683,7 +2766,7 @@ fetch_pinned_commit() {
     command_exists curl || return 1
     command_exists jq || return 1
 
-    api_url="https://api.github.com/repos/${repository}/commits/${REPO_BRANCH}"
+    api_url="https://api.github.com/repos/${repository}/commits/${RELEASE_CHANNEL}"
     if ! response="$(http_get "$api_url" 10 30)"; then
         return 1
     fi
@@ -2719,7 +2802,7 @@ update_shell() {
 
     # 优先锁定到具体提交，避免"先查版本、再下载浮动地址"造成制品与版本错位。
     if pinned_commit="$(fetch_pinned_commit "$SHELL_REPO")"; then
-        source_url="https://raw.githubusercontent.com/${SHELL_REPO}/${pinned_commit}/mihomo_beta/mihomo.sh"
+        source_url="https://raw.githubusercontent.com/${SHELL_REPO}/${pinned_commit}/mihomo.sh"
         log_info "已锁定远端提交：${pinned_commit}"
     else
         source_url="$SHELL_URL"
@@ -2898,6 +2981,10 @@ main() {
     fi
 
     detect_distro
+
+    # 发布通道必须在任何下载动作之前确定：菜单、自更新、重装、配置下载都依赖它。
+    read_release_channel
+
     menu
 }
 
