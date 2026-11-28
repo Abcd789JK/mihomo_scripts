@@ -1,0 +1,44 @@
+# ===============================================================
+# 行尾与语言标注
+# 背景：这些 .sh 会被复制到 Linux 直接执行（./install.sh）。
+# 若行尾是 CRLF，shebang 会变成 "#!/usr/bin/env bash\r"，
+# 内核把 "bash\r" 交给 env，报 "env: 'bash\r': No such file or directory"。
+# 因此显式覆盖全局 core.autocrlf，强制检出与工作区均为 LF。
+# ===============================================================
+
+* text=auto eol=lf
+
+# 核心脚本：强制 LF（缺一不可，曾在服务器上踩过 bash\r 的坑）
+# 两份脚本都在仓库根目录，main / beta 分支结构一致，没有通道子目录。
+install.sh       text eol=lf
+mihomo.sh        text eol=lf
+tests/smoke.sh   text eol=lf
+
+# 根目录资源：会被脚本下载到 Linux 后直接使用。
+# mihomo.service 若带 CRLF，systemd 会把 \r 读进路径导致启动失败。
+mihomo.yaml     text eol=lf
+mihomo.service  text eol=lf
+mihomo.openrc   text eol=lf
+*.service       text eol=lf
+*.openrc        text eol=lf
+
+# Windows 侧脚本（若后续新增 .bat/.cmd/.ps1，保持 CRLF）
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# YAML / Markdown / JSON 统一 LF，避免 Windows 编辑器写入 CRLF
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+
+# 二进制，不做行尾转换
+*.png   binary
+*.jpg   binary
+*.zip   binary
+*.gz    binary
+
+# 脚本语言标注（GitHub 语言统计用）
+*.sh    linguist-language=Shell
+tests/*.sh  linguist-language=Shell

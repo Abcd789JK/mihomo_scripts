@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main, beta]
+  pull_request:
+    branches: [main, beta]
+  workflow_dispatch:
+
+# 只读权限：CI 不需要写仓库，避免被注入的脚本滥用 GITHUB_TOKEN
+permissions:
+  contents: read
+
+# 同一分支的新推送取消旧任务，省额度
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 阻塞性检查：结构 / 语法 / 行尾 / 版本号 / 通道机制 / 通道读写
+  # 这是 main 分支保护规则里要勾选的 required status check
+  smoke:
+    name: smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 运行静态自检
+        run: bash tests/smoke.sh
+
+  # 观察性检查：历史代码量大，首轮先不阻塞合并。
+  # 待告警清理到 0 后删掉 continue-on-error，并加入分支保护。
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y shellcheck
+
+      - name: 检查全部脚本
+        run: |
+          find . -name '*.sh' -not -path './.git/*' -print0 \
+            | xargs -0 -r shellcheck -S warning -x
