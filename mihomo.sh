@@ -3,7 +3,7 @@
 # --------------------------------------------------
 # name   : mihomo.sh
 # desc   : mihomo 内核与订阅配置的交互式管理脚本
-# date   : 2026-11-28 10:23:15
+# date   : 2026-11-28 10:31:20
 # author : ChatGPT JK789
 # ver    : 2.6.1-beta
 # --------------------------------------------------
@@ -1053,7 +1053,7 @@ check_installation() {
 # 打印状态面板，按系统运行 / 版本更新 / 网络访问三组排列，不新增分组标题。
 show_status() {
     local install_status run_status auto_start software_version update_time script_path
-    local release_text kernel_chan
+    local kernel_chan
     detect_network_info
 
     script_path=$(command -v mihomo 2>/dev/null || true)
