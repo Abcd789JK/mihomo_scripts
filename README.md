@@ -8,11 +8,10 @@
 
 脚本分两个发布通道：`main` 是正式版，`beta` 是测试版。安装命令不带参数时装正式版，显式传 `beta` 才装测试版；安装成功后写入通道记录，管理脚本自更新沿用该通道。当前版本号显示在 `mihomo` 菜单页头，每次改了什么见 [CHANGELOG.md](./CHANGELOG.md)。
 
-最短路径——root 下执行第一条完成安装，第二条进入管理菜单：
+最短路径——root 下执行以下命令完成安装：
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/main/install.sh)
-mihomo
 ```
 
 要用测试版时，脚本地址换成 `beta` 分支，并在末尾显式带上 `beta` 参数：
