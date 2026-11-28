@@ -1,4 +1,4 @@
-# Linux 安装 mihomo 图文教程
+# Linux 安装 mihomo：PVE / LXC 开启 TUN 图文教程
 
 > 本文件只保留 PVE / LXC 开启 TUN 的截图步骤与安装入口。换源、依赖、配置说明、覆盖安装与常见问题一律以 [README.md](./README.md) 为准，两者若有出入，以 README.md 为准。
 

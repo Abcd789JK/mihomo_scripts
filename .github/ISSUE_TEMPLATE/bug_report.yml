@@ -13,7 +13,7 @@ body:
     attributes:
       label: 脚本版本
       description: 执行 `bash install.sh --version` 或查看文件头 `# ver`
-      placeholder: "2.6.2-beta"
+      placeholder: "2.6.3-beta"
     validations:
       required: true
 
