@@ -3,9 +3,9 @@
 # --------------------------------------------------
 # name   : mihomo.sh
 # desc   : mihomo 内核与订阅配置的交互式管理脚本
-# date   : 2026-11-28 10:31:20
+# date   : 2026-11-28 11:06:47
 # author : ChatGPT JK789
-# ver    : 2.6.1-beta
+# ver    : 2.6.2-beta
 # --------------------------------------------------
 
 # 与 install.sh 共用同名函数，改动需同步两份；
@@ -38,7 +38,7 @@ if (( EUID != 0 )); then
 fi
 
 # 声明当前脚本版本，必须与文件头 ver 完全一致。
-readonly SCRIPT_VERSION="2.6.1-beta"
+readonly SCRIPT_VERSION="2.6.2-beta"
 
 # 收紧新建文件的默认权限：配置、日志和临时文件只允许属主访问。
 umask 077
@@ -46,7 +46,7 @@ umask 077
 # 脚本元数据：页头显示的名称、作者与使用说明统一从这里取值。
 readonly SCRIPT_NAME="mihomo 管理脚本"
 readonly SCRIPT_AUTHOR="ChatGPT JK789"
-readonly USAGE_NOTE_1="重装或更新 mihomo 时，原有机场订阅会自动保留"
+readonly USAGE_NOTE_1="更新内核不影响配置；覆盖安装会保留订阅与面板密钥"
 readonly USAGE_NOTE_2="添加订阅请用「配置管理」，勿直接编辑配置文件"
 
 readonly ROOT_DIR="/root/mihomo"
@@ -96,7 +96,7 @@ init_sys=""
 arch=""
 arch_raw=""
 version=""
-channel=""             # stable=正式版(v1.19.32) / alpha=测试版(alpha-<哈希>)
+channel=""             # stable=正式版内核 / alpha=测试版内核
 ipv4=""
 ipv6=""
 use_cdn=false
@@ -370,7 +370,7 @@ apply_release_channel() { # $1=通道
 read_release_channel() {
     local saved=""
     if [[ -f "$RELEASE_FILE" ]]; then
-        saved="$(tr -d '[:space:]' < "$RELEASE_FILE" 2>/dev/null || true)"
+        saved="$( { tr -d '[:space:]' < "$RELEASE_FILE"; } 2>/dev/null || true )"
     fi
 
     if valid_release_channel "$saved"; then
@@ -391,15 +391,30 @@ read_release_channel() {
     return 1
 }
 
-# 保存脚本通道；写入失败不中断主流程（下次运行仍回退 main），但必须明确告警。
+# 保存脚本通道。先写临时文件再原子替换；两者都失败时退化为直接写入，尽量留下正确记录。
+# 仍然失败时按读取端实际会生效的通道报告，不做与事实不符的推断。
+# 写入失败不中断主流程，但必须明确告警，避免下次自更新静默换通道。
 save_release_channel() {
-    local tmp="${RELEASE_FILE}.tmp"
+    local tmp="${RELEASE_FILE}.tmp" saved=""
 
-    if ! printf '%s\n' "$RELEASE_CHANNEL" > "$tmp" 2>/dev/null \
+    # 重定向失败时 bash 会先向 shell 的 stderr 报错，必须先分组再统一丢弃，
+    # 否则终端会出现与自解释告警重复的原始错误行。
+    if ! { printf '%s\n' "$RELEASE_CHANNEL" > "$tmp"; } 2>/dev/null \
         || ! mv -f -- "$tmp" "$RELEASE_FILE" 2>/dev/null; then
         rm -f -- "$tmp" 2>/dev/null || true
-        log_warn "脚本通道保存失败：${RELEASE_FILE}，下次运行将按正式版（main）处理"
-        return 1
+        # 同目录重命名受限时直接写入仍可能成功；写坏的内容会被 read_release_channel 拒绝，
+        # 不会变成静默切通道。
+        if ! { printf '%s\n' "$RELEASE_CHANNEL" > "$RELEASE_FILE"; } 2>/dev/null; then
+            saved="$( { tr -d '[:space:]' < "$RELEASE_FILE"; } 2>/dev/null || true )"
+            log_warn "脚本通道保存失败：${RELEASE_FILE}"
+            if valid_release_channel "$saved"; then
+                log_warn "记录仍为$(release_channel_name "$saved")，与本次安装的$(release_channel_name "$RELEASE_CHANNEL")不一致"
+            else
+                log_warn "下次运行将按$(release_channel_name "$RELEASE_DEFAULT")处理"
+            fi
+            log_warn "请手动修正：printf '%s\n' ${RELEASE_CHANNEL} > ${RELEASE_FILE}"
+            return 1
+        fi
     fi
     chmod 600 "$RELEASE_FILE" 2>/dev/null || true
     return 0
@@ -833,7 +848,7 @@ detect_arch() {
     fi
 }
 
-# 版本号既可能是 1.19.2 这类语义化版本，也可能是 alpha-94b13ae 这类构建标识，
+# 版本号既可能是 1.19.2 这类语义化版本，也可能是 alpha-<哈希> 这类构建标识，
 # 因此只校验"可作为文件名且不含路径/引号/尖括号"，避免误杀合法版本。
 valid_version() {
     local v="$1"
@@ -869,9 +884,9 @@ fetch_alpha_version() { # --fail + 格式校验
     printf '%s' "$v"
 }
 
-# 正式版版本号：优先 api.github.com 的 tag_name（v1.19.32 → 1.19.32）；
-# 该域名在部分网络下不可达且未认证请求有 60 次/时限流，故增加。
-# releases/latest 的 302 Location 兜底（走 github.com 本体，镜像可代理）。
+# 正式版版本号：优先 api.github.com 的 tag_name（v1.2.3 → 1.2.3）。
+# 该域名在部分网络下不可达，且未认证请求有 60 次/时的限流，
+# 因此增加 releases/latest 的 302 Location 兜底（走 github.com 本体，镜像可代理）。
 # 获取正式版版本号。
 fetch_latest_version() { # 校验 null 与空值
     local v raw resolved tag m
@@ -921,7 +936,7 @@ verify_binary() {
 # 上游正式版并未发布 checksums.txt，这是当前唯一权威的校验值来源，且与二进制同源。
 # 仅用于正式版；测试版仍走 Prerelease-Alpha/checksums.txt。
 # 输出小写十六进制摘要；jq 缺失、API 不可达、字段为空时输出空串。
-fetch_asset_digest() { # $1=资产名（如 mihomo-linux-amd64-compatible-v1.19.33.gz）
+fetch_asset_digest() { # $1=资产名（如 mihomo-linux-amd64-compatible-v<版本>.gz）
     local name="$1" resolved raw d
     command_exists jq || return 0
 
@@ -940,7 +955,7 @@ fetch_asset_digest() { # $1=资产名（如 mihomo-linux-amd64-compatible-v1.19.
 #   正式版 → GitHub API 的 asset.digest（上游未发布 checksums.txt）
 #   测试版 → Prerelease-Alpha/checksums.txt（沿用原方案）
 # 两者都不可用时降级为告警而不阻断安装，避免镜像/限流导致装不上。
-verify_checksum() { # $1=本地文件 $2=资产文件名（如 mihomo-linux-amd64-compatible-v1.19.32.gz）
+verify_checksum() { # $1=本地文件 $2=资产文件名（如 mihomo-linux-amd64-compatible-v<版本>.gz）
     local file="$1" name="$2" sums_url="" sums="" expect="" actual="" tool=""
 
     if command_exists sha256sum; then
@@ -2363,8 +2378,8 @@ reinstall_mihomo() {
 
 # 生成候选资产基名（不含 .gz），按优先级逐行输出。
 # 两种通道的命名差异：
-#   正式版 mihomo-linux-amd64-compatible-v1.19.32
-#   测试版 mihomo-linux-amd64-compatible-alpha-94b13ae
+#   正式版 mihomo-linux-amd64-compatible-v<版本>
+#   测试版 mihomo-linux-amd64-compatible-alpha-<哈希>
 # amd64 优先 compatible 变体（兼容不支持 v2/v3 指令集的老 CPU），
 # 官方未发布该变体时回退到普通 amd64；arm64 无 compatible 变体，
 # 其余架构同样不带该后缀。
@@ -2578,8 +2593,8 @@ switch_version() {
     hreq
     printf '当前内核版本: %s，%s\n' "$current" "$(channel_name "$channel")"
     hr
-    printf '%s\n' "${COLOR_GREEN}1${COLOR_RESET}. 正式版（stable，如 v1.19.32）"
-    printf '%s\n' "${COLOR_GREEN}2${COLOR_RESET}. 测试版（alpha，如 alpha-94b13ae）"
+    printf '%s\n' "${COLOR_GREEN}1${COLOR_RESET}. 正式版（stable）"
+    printf '%s\n' "${COLOR_GREEN}2${COLOR_RESET}. 测试版（alpha）"
     hr
 
     read_input choice "${COLOR_CYAN}请输入选项 (1/2): ${COLOR_RESET}"

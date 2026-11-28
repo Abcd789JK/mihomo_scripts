@@ -1,17 +1,22 @@
 # mihomo 一键安装与管理脚本
 
 > 仓库地址：`https://github.com/Abcd789JK/mihomo_scripts`
-> 当前版本：`2.6.1-beta`
 
 面向 Linux 服务器、软路由与容器环境的 mihomo（Clash.Meta）内核一键安装与交互式管理脚本。安装器自动识别发行版与架构、补齐依赖、下载内核、写入 systemd / OpenRC 服务，并生成一份开箱可用的配置：默认启用 TUN 透明代理、fake-ip DNS 与 mrs 规则集分流，自带 zashboard 面板，装完只差填入机场订阅。
 
-脚本分成两个发布通道：`main` 是正式版，`beta` 是测试版。不带参数安装默认走正式版；显式传 `beta` 才安装测试版。安装成功后写入通道记录，管理脚本自更新会沿用该通道。
+脚本分两个发布通道：`main` 是正式版，`beta` 是测试版。安装命令不带参数时装正式版，显式传 `beta` 才装测试版；安装成功后写入通道记录，管理脚本自更新沿用该通道。当前版本号显示在 `mihomo` 菜单页头，每次改了什么见 `升级日志.md` 与 `CHANGELOG.md`。
 
 最短路径——root 下执行第一条完成安装，第二条进入管理菜单：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/beta/install.sh) beta
+bash <(curl -fsSL https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/main/install.sh)
 mihomo
+```
+
+要用测试版时，脚本地址换成 `beta` 分支，并在末尾显式带上 `beta` 参数：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/beta/install.sh) beta
 ```
 
 ---
@@ -22,7 +27,7 @@ mihomo
 |---|---|
 | 一键安装 | 自动识别发行版与架构、补齐依赖、下载内核、写入 systemd/OpenRC 服务、生成订阅配置与 zashboard 面板 |
 | 开箱可用 | 默认 TUN + fake-ip DNS + mrs 规则集分流，国内域名与节点域名分别解析，装完只差一条机场订阅 |
-| 交互式管理 | `mihomo` 命令进入菜单，覆盖重装、更新、卸载、启停、自启、版本切换、配置管理、日志、脚本自更新 |
+| 交互式管理 | `mihomo` 命令进入菜单，覆盖重装、更新、卸载、启停、自启、内核通道切换、配置管理、日志、脚本自更新 |
 | 双通道 | `main` 正式版与 `beta` 测试版各自独立安装、独立更新，安装时选定、装后持久保存 |
 | 国内可用 | 网络受限时自动改用镜像与备用地址，仍能取回脚本与内核 |
 
@@ -42,7 +47,7 @@ mihomo_scripts/
 └── CHANGELOG.md  升级日志.md  LICENSE  README.md  README_CN.md
 ```
 
-`README_CN.md` 是面向新装机的图文教程，侧重系统准备（换源、依赖、PVE 开启 TUN），其中的关键步骤已并入本文第三、四章。`升级日志.md` 按时间倒序记录每次更新了什么，更新前可以先看一眼。
+`README_CN.md` 是面向新装机的图文教程，只保留 PVE / LXC 开启 TUN 的截图步骤与安装入口；换源、依赖、配置与常见问题以本文为准。`升级日志.md` 按时间倒序记录每次更新了什么，更新前可以先看一眼。
 
 两个通道装出来的目录完全一样，区别只在脚本内容：`main` 取正式版，`beta` 取测试版。
 
@@ -55,7 +60,7 @@ mihomo_scripts/
 | `/root/mihomo/config.yaml.bak` | 最近一次修改前的配置备份（固定覆盖同一份） |
 | `/root/mihomo/ui/` | zashboard 面板静态文件 |
 | `/root/mihomo/version.txt` | 当前内核版本 |
-| `/root/mihomo/channel.txt` | 发布通道记录 |
+| `/root/mihomo/channel.txt` | 脚本通道记录 |
 | `/usr/bin/mihomo` | 交互菜单入口 |
 | `/var/log/mihomo.log` | 管理脚本的操作日志，超出上限自动截断 |
 
@@ -247,32 +252,30 @@ curl -fsSL -o install.sh https://raw.githubusercontent.com/Abcd789JK/mihomo_scri
 bash install.sh
 ```
 
-**国内网络（jsDelivr 镜像，把 `@main` 换成 `@beta` 即测试版）**
+测试版同理：脚本从 `beta` 分支取，执行时带上 `beta` 参数（`bash install.sh beta`）。
+
+**国内网络（jsDelivr 镜像，通道规则不变）**
 
 ```bash
+# 正式版：不带参数
 bash <(curl -fsSL https://cdn.jsdelivr.net/gh/Abcd789JK/mihomo_scripts@main/install.sh)
+
+# 测试版：@beta + beta 参数，两者缺一不可
+bash <(curl -fsSL https://cdn.jsdelivr.net/gh/Abcd789JK/mihomo_scripts@beta/install.sh) beta
 ```
 
-**钉住版本（生产环境推荐）**
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/v2.6.1/install.sh)
-```
-
-> tag 指向已发布的固定版本，比跟随 `main` 更适合长期运行，不会在两版切换的间隙装到中间状态。
-
-> 若正式版地址返回 404，说明 `main` 分支尚未发布 `install.sh`，改用上面的 `beta` 通道安装即可。
+镜像只替换下载地址，安装哪个通道仍由参数决定；只把 `@main` 改成 `@beta` 而不加 `beta` 参数，装出来的仍是正式版。
 
 ### 安装过程
 
-安装器按固定顺序推进，每一步失败都会明确报错并停止：检测系统环境 → 检测网络连通性 → 安装运行依赖 → 检查 IP 转发 → 检测架构 → 下载内核 → 安装系统服务 → 安装管理面板 → 安装管理脚本 → 写入配置 → 记录脚本通道。通道记录只在全部步骤成功后写入，失败不会覆盖原有记录。
+安装器按固定顺序推进：检测系统环境 → 检测网络连通性 → 安装运行依赖 → 检查 IP 转发 → 检测系统架构 → 下载内核 → 安装系统服务 → 安装管理面板 → 安装管理脚本 → 写入配置 → 记录脚本通道，共 11 步。关键步骤失败会报错并停止；管理面板下载失败只告警，不影响内核运行。通道记录只在全部步骤成功后写入，失败不会覆盖原有记录。
 
-过程中会询问三件事：
+交互安装过程中会询问三件事（管道 / 非交互安装取默认值）：
 
 | 询问 | 说明 |
 |---|---|
-| 内核通道 | 未给 `--channel` 时询问，默认 `stable`；`alpha` 为抢先版内核 |
-| 面板密钥 | 默认启用，安装器本地生成随机密钥并写入配置；关闭后面板无鉴权，只适合完全隔离的内网 |
+| 内核通道 | 未给 `--channel` 时询问，默认 `stable`；`alpha` 为抢先版内核。与脚本通道（`main` / `beta`）相互独立 |
+| 面板密钥 | 默认启用：首次安装本地生成随机密钥并写入配置，覆盖安装沿用原密钥；关闭后面板无鉴权，只适合完全隔离的内网 |
 | 是否添加机场订阅 | 可以选 `n` 只装默认配置，之后用菜单 10 补上 |
 
 安装成功后会自动删除本次运行的 `install.sh`，避免留在磁盘上；通过管道执行（`bash <(curl ...)`）时本来就没有落地文件，无需清理。
@@ -282,16 +285,18 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/v2.
 已有安装时重跑安装命令即为覆盖安装。交互模式下先问是否继续、是否保留现有订阅与配置（选不保留则直接覆盖，不生成备份），确认后行为如下：
 
 - 现有 `config.yaml` 先备份为 `config.yaml.bak`；
-- **只保留机场订阅段**（`proxy-providers`）与面板密钥，其余配置项恢复成默认配置；
+- **只保留机场订阅段**（`proxy-providers`）与面板密钥，其余配置项恢复成默认配置；过程中仍会询问是否启用面板密钥，保留现有配置时沿用原密钥，不保留时重新生成，选择禁用则移除密钥；
 - 自定义过的端口、DNS、规则、代理组不会保留，需要的话请另外保存一份 `config.yaml`；
 - 通道由本次命令决定：不带参数装正式版，显式传 `beta` 装测试版，不再沿用旧通道记录；订阅无需重新输入。
+
+从菜单 **1 安装 mihomo** 重装时流程不同：整个 `/root/mihomo` 会先暂存为 `/root/mihomo.old` 再重新安装，新配置不含原订阅，需要从旧目录的 `config.yaml` 取回订阅链接重新添加，或改用上面的覆盖安装命令。
 
 ### 安装结果
 
 | 项目 | 路径 / 值 |
 |---|---|
 | 安装目录 / 配置 | `/root/mihomo/`（配置为 `/root/mihomo/config.yaml`） |
-| 发布通道记录 | `/root/mihomo/channel.txt` |
+| 脚本通道记录 | `/root/mihomo/channel.txt` |
 | 命令入口 | `/usr/bin/mihomo` |
 | 服务 | `/etc/systemd/system/mihomo.service` 或 `/etc/init.d/mihomo` |
 | 转发参数 | `/etc/sysctl.d/99-ip-forward.conf` |
@@ -339,8 +344,8 @@ proxy-providers:
 
 ### 修改与生效
 
-- 所有写操作（新增 / 修改 / 删除订阅、重置配置）都先备份为 `config.yaml.bak`，校验通过后才覆盖当前配置；校验不通过时原文件保持不动。
-- **重置配置文件**（菜单 10 → 4）用仓库里的默认配置覆盖当前配置，订阅需要重新输入，原配置保留在 `config.yaml.bak`。
+- 所有写操作（新增 / 修改 / 删除订阅、重置配置、更换密钥）都先备份为 `config.yaml.bak`，写入后校验并重启服务；校验或重启失败时自动回滚到该备份。
+- **重置配置文件**（菜单 10 → 4）用仓库里的默认配置覆盖当前配置，订阅需要重新输入，面板密钥会重新生成，原配置保留在 `config.yaml.bak`。
 - 手改 `config.yaml` 后建议先校验再重启，避免把语法错误带进运行态：
 
 ```bash
@@ -350,7 +355,7 @@ systemctl restart mihomo                             # 或菜单 6
 
 ### 面板密钥
 
-密钥写在 `external-controller` 的 `secret` 字段，安装结束时只在屏幕上显示一次，不会写进日志。菜单 **10 → 5** 可以启用、禁用或更换密钥，更换后需要重新登录面板。
+密钥写在 `external-controller` 的 `secret` 字段，安装结束时在屏幕上打印一次，不会写进日志。之后在菜单 **10 → 5** 可以查看当前密钥、启用、禁用或重新生成，改动后需要重新登录面板。
 
 ---
 
@@ -362,7 +367,7 @@ systemctl restart mihomo                             # 或菜单 6
 
 | 菜单项 | 功能 |
 |---|---|
-| 1 | 安装 mihomo（覆盖安装沿用当前脚本通道，旧目录暂存为 `/root/mihomo.old`） |
+| 1 | 安装 mihomo（沿用当前脚本通道；旧目录整体暂存为 `/root/mihomo.old`，订阅与面板密钥从其中的 `config.yaml` 取回） |
 | 2 | 更新内核版本 |
 | 3 | 卸载 mihomo（可选把订阅配置保留到 `/root/mihomo-config.yaml.bak`） |
 | 4 / 5 / 6 | 启动 / 停止 / 重启服务 |
@@ -400,7 +405,7 @@ logread | grep mihomo            # OpenRC 下的日志
 - 想确认有没有新版，或本次更新只想换脚本、不想动内核；
 - `beta` 通道的更新想立刻用上（`beta` 每次推送即生效，`main` 随正式版一起发布）。
 
-想固定某个版本、或要换通道时不要用菜单 12，改用第四章的安装命令，见下方对照表。
+要换脚本通道时不要用菜单 12，改用第四章对应通道的安装命令，见下方对照表。
 
 **操作步骤**
 
@@ -431,7 +436,6 @@ logread | grep mihomo            # OpenRC 下的日志
 | 升级内核到当前内核通道的最新版 | 菜单 2 | 只替换内核二进制，服务会重启 |
 | 在 `stable` / `alpha` 内核之间切换 | 菜单 9 | 只替换内核二进制，服务会重启 |
 | 换脚本通道（`main` ↔ `beta`） | 重跑对应通道的安装命令 | 脚本与配套文件，订阅保留 |
-| 固定到某个发布版本 | 用 tag 地址重跑安装命令（如 `v2.6.1`） | 同上 |
 
 > 菜单 12 只在当前仓库内升级。脚本还停留在 2.5.x 及更早、或装自旧仓库时，它只能拿到旧地址上的版本，必须按第八章用新地址重装一次。
 
@@ -456,11 +460,11 @@ logread | grep mihomo            # OpenRC 下的日志
 **通道与内核版本是两件事**：
 
 - 位置参数 `beta` 选的是**脚本通道**（测试版 beta），不带参数即正式版 main；非法参数直接报错退出；
-- `--channel stable|alpha` 选的是**mihomo 内核通道**（正式版 stable / 测试版 alpha，如 `v1.19.32` 与 `alpha-94b13ae`）。
+- `--channel stable|alpha` 选的是**mihomo 内核通道**（正式版 stable / 测试版 alpha）。
 
 正式版脚本配 alpha 内核是完全合法的组合，两者互不约束。
 
-**版本号**：`beta` 分支版本号为 `vX.Y.Z-beta`（如 `v2.6.1-beta`），`main` 分支为 `vX.Y.Z`；`-beta` 只用于版本号显示，不进入下载链接或 tag 地址。`beta` 合并到 `main` 时移除后缀、保留数字版本号。版本号只在菜单页头显示一次，状态区不重复。
+**版本号**：脚本内的版本常量为 `X.Y.Z`（`main`）与 `X.Y.Z-beta`（`beta`），菜单页头显示时加 `v` 前缀（如 `vX.Y.Z-beta`）；`-beta` 只用于版本号显示，不进入下载链接。`beta` 合并到 `main` 时移除后缀、保留数字版本号。版本号只在菜单页头显示一次，状态区不重复；当前数字版本以页头为准，不在文档中重复维护。
 
 **通道是怎么确定的**
 
@@ -480,8 +484,8 @@ printf 'main\n' > /root/mihomo/channel.txt      # 修正记录（把 main 换成
 
 - `beta` 是开发分支，可能包含未完成的功能、未处理好的边界情况，甚至服务启动失败；
 - 升级测试版前建议先备份 `/root/mihomo/config.yaml`；
-- 生产环境请使用 `main` 或版本 tag；
-- 从测试版回到正式版：重跑第四章的正式版安装命令，订阅与配置会被保留。
+- 生产环境请使用 `main`；
+- 从测试版回到正式版：重跑第四章的正式版安装命令，订阅与面板密钥会被保留，其余配置恢复默认。
 
 ---
 
@@ -519,7 +523,7 @@ mihomo                         # 菜单页头显示当前脚本版本
     cp -f /root/mihomo/config.yaml /root/mihomo-config-backup.yaml
     ```
 
-2. 用新地址重跑安装命令：原来装正式版的加 `main`，原来装测试版的加 `beta`。**不要顺手换通道**，否则测试版机器会被带到正式版（或反之）。命令见第四章。
+2. 用新地址重跑安装命令：原来装正式版的直接用 `main` 脚本地址、不传参数；原来装测试版的用 `beta` 脚本地址并显式加 `beta` 参数。**不要顺手换通道**，否则测试版机器会被带到正式版（或反之）。命令见第四章。
 3. 安装器提示「检测到已存在的安装目录」时，先问「继续将覆盖安装」输入 `y`；再问「是否保留现有订阅与配置」保持默认 `Y` 回车。这一步才会保留订阅与面板密钥。
 4. 装完确认通道记录与版本：
 
@@ -555,7 +559,7 @@ mihomo                         # 菜单页头显示当前脚本版本
 `mixed-port` 没有鉴权，只能用防火墙限制来源；不需要局域网代理时把 `allow-lan` 关闭。
 
 **安装命令 404 或 raw 拉不下来**
-换 jsDelivr 镜像，或在地址前加 `https://github.boki.moe/` 前缀；`main` 分支还没发布安装脚本时先用 `beta` 通道。
+换 jsDelivr 镜像，或在地址前加 `https://github.boki.moe/` 前缀；同时确认脚本地址的分支与参数匹配：`main` 分支不带参数，`beta` 分支必须带 `beta` 参数。
 
 **执行完 `install.sh` 文件不见了**
 安装成功后脚本会删除自身，属预期行为；通过管道执行（`bash <(curl ...)`）时没有落地文件，不存在这个问题。

@@ -13,15 +13,15 @@ body:
     attributes:
       label: 脚本版本
       description: 执行 `bash install.sh --version` 或查看文件头 `# ver`
-      placeholder: "2.6.0"
+      placeholder: "2.6.2-beta"
     validations:
       required: true
 
   - type: dropdown
     id: channel
     attributes:
-      label: 发布通道
-      description: 安装时使用的通道；菜单状态区「发布通道」也会显示
+      label: 脚本通道
+      description: 安装时使用的脚本通道；菜单状态区「脚本通道」也会显示
       options:
         - 正式版 main
         - 测试版 beta
