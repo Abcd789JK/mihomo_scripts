@@ -95,7 +95,11 @@ done
 
 # ---------- 5. 版本号 ----------
 title '5/8 版本号一致性'
-# 版本规范：两份脚本统一为 X.Y.Z，不带 -beta 等后缀；两个分支共用同一版本号。
+# 版本规范：main = X.Y.Z；beta = X.Y.Z-beta；重复后缀一律拒绝。
+BRANCH_NAME="${GITHUB_REF_NAME:-}"
+if [[ -z "$BRANCH_NAME" ]] && git -C "$ROOT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    BRANCH_NAME=$(git -C "$ROOT_DIR" branch --show-current 2>/dev/null || true)
+fi
 EXPECT_VERSION=""
 for f in "${FILES[@]}"; do
     [[ -f "${ROOT_DIR}/${f}" ]] || continue
@@ -108,10 +112,19 @@ for f in "${FILES[@]}"; do
         bad "${f} 头部 ${header} ≠ 常量 ${const}"
         continue
     fi
-    if [[ ! "$const" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-        bad "${f} 版本 '${const}' 格式非法（须为 X.Y.Z，不带后缀）"
+    if [[ "$const" == *-beta-beta* ]]; then
+        bad "${f} 版本 '${const}' 含重复 -beta 后缀"
         continue
     fi
+    if [[ ! "$const" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.]*)?$ ]]; then
+        bad "${f} 版本 '${const}' 格式非法"
+        continue
+    fi
+    case "$BRANCH_NAME" in
+        beta)
+            [[ "$const" == *-beta ]] || bad "${f} beta 分支版本 '${const}' 缺少 -beta 后缀"
+            ;;
+    esac
     ok "${f} 版本一致：${const}"
     if [[ -z "$EXPECT_VERSION" ]]; then
         EXPECT_VERSION="$const"
@@ -120,35 +133,30 @@ for f in "${FILES[@]}"; do
     fi
 done
 
-# 更新检测的版本比较逻辑实际执行：普通版本可比较，预发布后缀仍按 SemVer 排序。
+# 版本比较逻辑实际执行：正式版高于预发布版，重复后缀被拒绝。
 VERIFY_DIR="$(mktemp -d -p . 2>/dev/null || true)"
 if [[ -n "$VERIFY_DIR" && -d "$VERIFY_DIR" ]]; then
     sed -n '/^is_semver()/,/^}/p; /^compare_semver()/,/^}/p' "${ROOT_DIR}/mihomo.sh" > "${VERIFY_DIR}/semver.sh"
     semver_check() { bash -c 'source "$1"; shift; eval "$*"' _ "${VERIFY_DIR}/semver.sh" "$1" 2>/dev/null; }
-    if [[ "$(semver_check 'compare_semver 2.6.1 2.6.0')" == "1" ]]; then
-        ok '版本比较：2.6.1 高于 2.6.0'
+    if [[ "$(semver_check 'compare_semver 2.6.1 2.6.1-beta')" == "1" ]]; then
+        ok '正式版 2.6.1 高于预发布版 2.6.1-beta'
     else
-        bad '版本比较无法识别正常升级'
+        bad '版本比较未正确区分正式版与预发布版'
     fi
-    if [[ "$(semver_check 'compare_semver 2.6.0 2.6.1')" == "-1" ]]; then
-        ok '版本比较：2.6.0 低于 2.6.1，可阻止降级'
+    if [[ "$(semver_check 'compare_semver 2.6.1-beta 2.6.1')" == "-1" ]]; then
+        ok '预发布版 2.6.1-beta 低于正式版 2.6.1'
     else
-        bad '版本比较降级判断异常'
+        bad '预发布版降级判断异常'
     fi
-    if [[ "$(semver_check 'compare_semver 2.6.1 2.6.1')" == "0" ]]; then
-        ok '版本比较：相同版本结果一致'
+    if [[ "$(semver_check 'compare_semver 2.6.1-beta 2.6.1-beta')" == "0" ]]; then
+        ok '相同版本比较结果一致'
     else
         bad '相同版本比较异常'
     fi
-    if [[ "$(semver_check 'compare_semver 1.2.3 1.2.3-rc.1')" == "1" ]]; then
-        ok '版本比较：正式版高于预发布版（SemVer 兼容）'
+    if semver_check 'compare_semver 2.6.1-beta-beta 2.6.1'; then
+        bad '重复 -beta 后缀未被版本校验拒绝'
     else
-        bad '版本比较未正确处理 SemVer 预发布'
-    fi
-    if semver_check 'compare_semver 1.2.3-rc.1-rc.2 1.2.3'; then
-        bad '重复预发布后缀未被版本校验拒绝'
-    else
-        ok '重复预发布后缀被版本校验拒绝'
+        ok '重复 -beta 后缀被版本校验拒绝'
     fi
     rm -rf -- "$VERIFY_DIR"
 else
