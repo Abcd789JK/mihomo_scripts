@@ -86,3 +86,8 @@ desktop.ini
 .shellcheckrc.local
 *.shellcheck.cache
 node_modules/
+
+# ---------- AI Agent 本地规范文件（仅本机使用，不入库）----------
+AGENTS.md
+DEV_AGENTS.md
+GIT_AGENTS.md

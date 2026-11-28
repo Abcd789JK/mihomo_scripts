@@ -10,7 +10,7 @@
 最短路径——root 下执行第一条完成安装，第二条进入管理菜单：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Abcd789JK/mihomo_scripts/beta/install.sh) beta
 mihomo
 ```
 
