@@ -1,10 +1,12 @@
 # mihomo 一键安装与管理脚本
 
 > 仓库地址：`https://github.com/Abcd789JK/mihomo_scripts`
+>
+> 在 PVE / LXC 容器里安装、需要先给容器开启 TUN：见 [PVE_TUN.md](./PVE_TUN.md)（图文步骤）。
 
 面向 Linux 服务器、软路由与容器环境的 mihomo（Clash.Meta）内核一键安装与交互式管理脚本。安装器自动识别发行版与架构、补齐依赖、下载内核、写入 systemd / OpenRC 服务，并生成一份开箱可用的配置：默认启用 TUN 透明代理、fake-ip DNS 与 mrs 规则集分流，自带 zashboard 面板，装完只差填入机场订阅。
 
-脚本分两个发布通道：`main` 是正式版，`beta` 是测试版。安装命令不带参数时装正式版，显式传 `beta` 才装测试版；安装成功后写入通道记录，管理脚本自更新沿用该通道。当前版本号显示在 `mihomo` 菜单页头，每次改了什么见 `升级日志.md` 与 `CHANGELOG.md`。
+脚本分两个发布通道：`main` 是正式版，`beta` 是测试版。安装命令不带参数时装正式版，显式传 `beta` 才装测试版；安装成功后写入通道记录，管理脚本自更新沿用该通道。当前版本号显示在 `mihomo` 菜单页头，每次改了什么见 [CHANGELOG.md](./CHANGELOG.md)。
 
 最短路径——root 下执行第一条完成安装，第二条进入管理菜单：
 
@@ -44,10 +46,11 @@ mihomo_scripts/
 ├── mihomo.yaml             # 默认配置（脚本从仓库根目录下载）
 ├── mihomo.service          # systemd 单元
 ├── mihomo.openrc           # OpenRC 服务脚本
-└── CHANGELOG.md  升级日志.md  LICENSE  README.md  README_CN.md
+├── PVE_TUN.md              # PVE / LXC 开启 TUN 的图文教程
+└── CHANGELOG.md  LICENSE  README.md
 ```
 
-`README_CN.md` 是面向新装机的图文教程，只保留 PVE / LXC 开启 TUN 的截图步骤与安装入口；换源、依赖、配置与常见问题以本文为准。`升级日志.md` 按时间倒序记录每次更新了什么，更新前可以先看一眼。
+[PVE_TUN.md](./PVE_TUN.md) 是面向新装机的图文教程，只保留 PVE / LXC 开启 TUN 的截图步骤与安装入口；换源、依赖、配置与常见问题以本文为准。[CHANGELOG.md](./CHANGELOG.md) 记录每个版本的改动，更新前可以先看一眼。
 
 两个通道装出来的目录完全一样，区别只在脚本内容：`main` 取正式版，`beta` 取测试版。
 
@@ -62,7 +65,6 @@ mihomo_scripts/
 | `/root/mihomo/version.txt` | 当前内核版本 |
 | `/root/mihomo/channel.txt` | 脚本通道记录 |
 | `/usr/bin/mihomo` | 交互菜单入口 |
-| `/var/log/mihomo.log` | 管理脚本的操作日志，超出上限自动截断 |
 
 ---
 
@@ -289,7 +291,7 @@ bash <(curl -fsSL https://cdn.jsdelivr.net/gh/Abcd789JK/mihomo_scripts@beta/inst
 - 自定义过的端口、DNS、规则、代理组不会保留，需要的话请另外保存一份 `config.yaml`；
 - 通道由本次命令决定：不带参数装正式版，显式传 `beta` 装测试版，不再沿用旧通道记录；订阅无需重新输入。
 
-从菜单 **1 安装 mihomo** 重装时流程不同：整个 `/root/mihomo` 会先暂存为 `/root/mihomo.old` 再重新安装，新配置不含原订阅，需要从旧目录的 `config.yaml` 取回订阅链接重新添加，或改用上面的覆盖安装命令。
+从菜单 **1 安装 mihomo** 重装走的是同一套安装器：目录原地覆盖，安装器随后会问「是否保留现有订阅与配置（保留会先备份）」。选保留即可沿用机场订阅与面板密钥（`config.yaml` 先备份为 `config.yaml.bak`），选不保留则按全新安装处理，不留备份。
 
 ### 安装结果
 
@@ -367,7 +369,7 @@ systemctl restart mihomo                             # 或菜单 6
 
 | 菜单项 | 功能 |
 |---|---|
-| 1 | 安装 mihomo（沿用当前脚本通道；旧目录整体暂存为 `/root/mihomo.old`，订阅与面板密钥从其中的 `config.yaml` 取回） |
+| 1 | 安装 mihomo（原地重装，沿用当前脚本通道；可选保留并备份现有订阅与面板密钥） |
 | 2 | 更新内核版本 |
 | 3 | 卸载 mihomo（可选把订阅配置保留到 `/root/mihomo-config.yaml.bak`） |
 | 4 / 5 / 6 | 启动 / 停止 / 重启服务 |
@@ -393,11 +395,11 @@ rc-service mihomo status         # Alpine / OpenRC
 logread | grep mihomo            # OpenRC 下的日志
 ```
 
-管理脚本自身的操作记录在 `/var/log/mihomo.log`，与内核日志分开。
+内核日志由 systemd / OpenRC 统一收集，就是上面这些命令。管理脚本本身不写日志文件：操作结果与失败原因都直接打印在屏幕上，脚本自己的输出不会与内核日志混在一起。
 
 ### 更新管理脚本（菜单 12）
 
-管理脚本与内核分开更新：菜单 12 替换的是 `/usr/bin/mihomo` 这个菜单程序，菜单 2 / 9 换的是内核二进制。升级脚本不会重启服务，也不会改动 `config.yaml` 与订阅。每次更新了什么见 `升级日志.md`。
+管理脚本与内核分开更新：菜单 12 替换的是 `/usr/bin/mihomo` 这个菜单程序，菜单 2 / 9 换的是内核二进制。升级脚本不会重启服务，也不会改动 `config.yaml` 与订阅。每次更新了什么见 [CHANGELOG.md](./CHANGELOG.md)。
 
 **什么情况下用菜单 12**
 
@@ -441,7 +443,7 @@ logread | grep mihomo            # OpenRC 下的日志
 
 ### 卸载
 
-菜单 3 会停止服务、取消自启、删除服务单元、`/root/mihomo/`（含重装时暂存的 `/root/mihomo.old`）与 `/etc/sysctl.d/99-ip-forward.conf`。卸载前会单独询问是否保留订阅配置，选保留则复制到 `/root/mihomo-config.yaml.bak`，重装后可以取回里面的订阅链接。`/usr/bin/mihomo` 不自动删除，卸载结束时会打印删除命令。
+菜单 3 会停止服务、取消自启、删除服务单元、`/root/mihomo/`（含旧版重装留下的 `/root/mihomo.old`）与 `/etc/sysctl.d/99-ip-forward.conf`，旧版本留下的 `/var/log/mihomo.log` 一并清理。卸载前会单独询问是否保留订阅配置，选保留则复制到 `/root/mihomo-config.yaml.bak`，重装后可以取回里面的订阅链接。`/usr/bin/mihomo` 不自动删除，卸载结束时会打印删除命令。
 
 ---
 
@@ -583,7 +585,7 @@ apk add --no-cache tzdata && \
 ```
 
 **`/root/mihomo.old` 占了空间**
-重装时旧目录会被暂存到这里，方便取回配置与订阅；确认不再需要后执行 `rm -rf /root/mihomo.old`。
+旧版重装会把整个目录暂存到这里，里面可能有你还没取回的订阅；确认不再需要后执行 `rm -rf /root/mihomo.old`。当前版本重装为原地覆盖，不会再生成这个目录。
 
 **Alpine 上 `systemctl` 不存在**
 Alpine 用 OpenRC：服务操作走 `rc-service mihomo start|stop|restart`，自启用 `rc-update add mihomo`，日志用 `logread | grep mihomo`。

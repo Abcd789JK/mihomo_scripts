@@ -3,9 +3,9 @@
 # --------------------------------------------------
 # name   : install.sh
 # desc   : 一键安装 mihomo 内核、系统服务与管理面板并生成订阅配置
-# date   : 2026-11-28 12:45:02
+# date   : 2026-11-28 14:23:56
 # author : ChatGPT JK789
-# ver    : 2.6.2
+# ver    : 2.6.3-beta
 # --------------------------------------------------
 
 # 与 mihomo.sh 共用同名函数，改动需同步两份；
@@ -38,7 +38,7 @@ if (( EUID != 0 )); then
 fi
 
 # 声明当前脚本版本，必须与文件头 ver 完全一致。
-readonly SCRIPT_VERSION="2.6.2"
+readonly SCRIPT_VERSION="2.6.3-beta"
 
 # 收紧新建文件的默认权限：配置与临时文件只允许属主访问。
 umask 077
@@ -1198,23 +1198,46 @@ verify_checksum() { # $1=本地文件 $2=资产文件名（如 mihomo-linux-amd6
     log_success "SHA256 校验通过"
 }
 
-# 安装二进制，带旧版本备份与失败回滚。
+# 回滚二进制到备份：失败时给出可手动执行的恢复命令，避免"已回滚"的错觉，
+# 也避免 set -e 在回滚中途退出（那会让终端提示与实际状态不一致）。
+rollback_binary() { # $1=备份路径
+    local bak="$1"
+    if cp -f -- "$bak" "$BIN_FILE" && chmod +x "$BIN_FILE"; then
+        log_warn "已回滚到原二进制：${bak}"
+        return 0
+    fi
+    log_error "回滚失败，请手动恢复：cp -f ${bak} ${BIN_FILE} && chmod +x ${BIN_FILE}"
+    return 1
+}
+
+# 安装二进制，带旧版本备份、失败回滚，以及"原来在跑就重新拉起"。
 install_binary() { # $1=新二进制路径
-    local src="$1" bak="${BIN_FILE}.bak"
+    local src="$1" bak="${BIN_FILE}.bak" was_running=0
+
     if [[ -f "$BIN_FILE" ]]; then
         cp -f -- "$BIN_FILE" "$bak" || log_warn "备份旧二进制失败"
+        if service_is_active; then
+            was_running=1
+        fi
         service_do stop >/dev/null 2>&1 || true
     fi
     if ! mv -f -- "$src" "$BIN_FILE"; then
         log_error "替换二进制失败"
+        # 全新安装没有旧二进制可回滚，此时只提示失败，不打印无意义的恢复命令
         if [[ -f "$bak" ]]; then
-            cp -f -- "$bak" "$BIN_FILE"
-            chmod +x "$BIN_FILE"
+            rollback_binary "$bak" || true
+            service_do start >/dev/null 2>&1 || true
         fi
         return 1
     fi
-    chmod +x "$BIN_FILE"
-    printf '%s\n' "$version" >"$VERSION_FILE"
+    chmod +x "$BIN_FILE" || log_warn "设置可执行权限失败：${BIN_FILE}"
+    printf '%s\n' "$version" >"$VERSION_FILE" 2>/dev/null || log_warn "写入版本记录失败：${VERSION_FILE}"
+
+    # 覆盖安装时原服务是运行中的：先按现有配置拉起来，避免后续步骤失败后机器一直停服；
+    # 配置写入成功后还会再重启一次，多这一次重启不影响结果。
+    if (( was_running )); then
+        service_do start >/dev/null 2>&1 || log_warn "按现有配置启动失败，将在写入配置后再试一次"
+    fi
 }
 
 # 下载、校验并安装 mihomo 内核。
@@ -1536,7 +1559,7 @@ config_test() { # $1=配置文件
 # 注意：必须接收文件路径而非 stdin —— 管道会让函数在子 shell 中执行，
 # 导致 tmp_files 无法被 trap 清理。
 inject_providers() { # $1=块文件 $2=源配置 $3=输出文件
-    local block_file="$1" src="$2" dst="$3" before after
+    local block_file="$1" src="$2" dst="$3" before after dup
 
     if [[ ! -s "$block_file" ]]; then
         log_error "没有可写入的订阅内容"
@@ -1659,6 +1682,19 @@ inject_providers() { # $1=块文件 $2=源配置 $3=输出文件
         return 1
     fi
 
+    # 数量校验看不出重复键：同名 provider 会写出两份并互相覆盖，必须单独拦一次。
+    dup=$(awk '
+        /^proxy-providers:[[:space:]]*$/ { f = 1; next }
+        f && /^[^[:space:]#]/            { f = 0 }
+        f && /^[[:space:]]+provider_[0-9]+:/ {
+            if (seen[$1]++) { print $1; exit }
+        }
+    ' "$dst")
+    if [[ -n "$dup" ]]; then
+        log_error "写入失败：订阅键重复（${dup}），已中止"
+        return 1
+    fi
+
     after=$(count_providers "$dst")
     if (( after <= before )); then
         log_error "写入失败：订阅数量未增加（${before} → ${after}）"
@@ -1667,14 +1703,24 @@ inject_providers() { # $1=块文件 $2=源配置 $3=输出文件
     return 0
 }
 
+# 回滚配置到备份：失败时给出可手动执行的恢复命令。
+rollback_config() { # $1=备份路径
+    local bak="$1"
+    if cp -f -- "$bak" "$CONFIG_FILE" && chmod 600 "$CONFIG_FILE"; then
+        log_warn "已回滚到备份：${bak}"
+        return 0
+    fi
+    log_error "回滚失败，请手动恢复：cp -f ${bak} ${CONFIG_FILE}"
+    return 1
+}
+
 # 校验 + 重启 + 失败回滚。
 apply_config() { # $1=备份路径
     local bak="${1:-}"
     if ! config_test "$CONFIG_FILE"; then
         log_error "配置校验未通过"
         if [[ -n "$bak" && -f "$bak" ]]; then
-            cp -f -- "$bak" "$CONFIG_FILE"
-            log_error "已回滚到备份：${bak}"
+            rollback_config "$bak" || true
         fi
         return 1
     fi
@@ -1690,8 +1736,7 @@ apply_config() { # $1=备份路径
     if ! service_do restart; then
         log_error "服务重启失败"
         if [[ -n "$bak" && -f "$bak" ]]; then
-            cp -f -- "$bak" "$CONFIG_FILE"
-            log_error "已回滚到备份：${bak}"
+            rollback_config "$bak" || true
             # 回滚后的重启属于失败补救：此处失败不再覆盖上面的原始错误，只由调用方返回失败。
             service_do restart >/dev/null 2>&1 || true
         fi
@@ -1702,8 +1747,7 @@ apply_config() { # $1=备份路径
         log_error "服务未处于运行状态"
         log_error "排查：journalctl -u mihomo -n 50"
         if [[ -n "$bak" && -f "$bak" ]]; then
-            cp -f -- "$bak" "$CONFIG_FILE"
-            log_error "已回滚到备份：${bak}"
+            rollback_config "$bak" || true
             # 回滚后的重启属于失败补救：此处失败不再覆盖上面的原始错误，只由调用方返回失败。
             service_do restart >/dev/null 2>&1 || true
         fi
@@ -1961,7 +2005,7 @@ config_mihomo() {
     fi
 
     mv -f -- "$merged" "$CONFIG_FILE"
-    chmod 600 "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE" || log_warn "设置配置权限失败：${CONFIG_FILE}"
 
     apply_config "$bak" || return 1
 
@@ -2020,7 +2064,7 @@ install_default_config_only() {
     fi
 
     mv -f -- "$base" "$CONFIG_FILE"
-    chmod 600 "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE" || log_warn "设置配置权限失败：${CONFIG_FILE}"
 
     if [[ "$init_sys" == "unknown" ]]; then
         log_warn "未识别 init 系统，跳过服务启动"
@@ -2248,6 +2292,8 @@ parse_args() {
                 ;;
             --channel=*)
                 channel="${1#*=}"
+                # 空值与缺参同样处理：静默当成"未指定"会让人以为参数生效了
+                [[ -n "$channel" ]] || die "--channel 缺少参数（stable / alpha）"
                 shift
                 ;;
             -*)

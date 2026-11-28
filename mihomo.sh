@@ -3,9 +3,9 @@
 # --------------------------------------------------
 # name   : mihomo.sh
 # desc   : mihomo 内核与订阅配置的交互式管理脚本
-# date   : 2026-11-28 12:45:02
+# date   : 2026-11-28 14:23:56
 # author : ChatGPT JK789
-# ver    : 2.6.2
+# ver    : 2.6.3-beta
 # --------------------------------------------------
 
 # 与 install.sh 共用同名函数，改动需同步两份；
@@ -38,9 +38,9 @@ if (( EUID != 0 )); then
 fi
 
 # 声明当前脚本版本，必须与文件头 ver 完全一致。
-readonly SCRIPT_VERSION="2.6.2"
+readonly SCRIPT_VERSION="2.6.3-beta"
 
-# 收紧新建文件的默认权限：配置、日志和临时文件只允许属主访问。
+# 收紧新建文件的默认权限：配置与临时文件只允许属主访问。
 umask 077
 
 # 脚本元数据：页头显示的名称、作者与使用说明统一从这里取值。
@@ -57,9 +57,10 @@ readonly SHELL_FILE="/usr/bin/mihomo"
 readonly SERVICE_SYSTEMD="/etc/systemd/system/mihomo.service"
 readonly SERVICE_OPENRC="/etc/init.d/mihomo"
 readonly SYSCTL_FILE="/etc/sysctl.d/99-ip-forward.conf"
-readonly LOG_FILE="/var/log/mihomo.log"
-readonly INSTALL_LOG="/var/log/mihomo-install.log"
-# 早期版本曾用定时任务清理日志，此处仅为卸载时清理残留而保留。
+# 本脚本不写日志文件：屏幕输出与 journalctl 的内核日志就是全部诊断依据。
+# 早期版本曾用定时任务与 /var/log/mihomo.log 记录自身日志，下面这些路径仅为卸载时清理残留而保留。
+readonly LEGACY_LOG_FILE="/var/log/mihomo.log"
+readonly LEGACY_INSTALL_LOG="/var/log/mihomo-install.log"
 readonly LOGCLEAN_SERVICE="/etc/systemd/system/mihomo-logclean.service"
 readonly LOGCLEAN_TIMER="/etc/systemd/system/mihomo-logclean.timer"
 readonly LOGCLEAN_PERIODIC="/etc/periodic/daily/mihomo-logclean"
@@ -133,83 +134,25 @@ setup_colors() {
     fi
 }
 
-# 日志文件超过 1 MB 时就地截断，只保留最近 1000 行。
-# 参数：$1 表示日志文件路径。
-# 返回：0 表示已截断或无需截断，1 表示截断失败。
-log_trim() {
-    local log_path="$1"
-    local size_limit=$((1024 * 1024))
-    local keep_lines=1000
-    local size
-    local temp_file
-
-    [[ -f "$log_path" ]] || return 0
-    if ! size="$(wc -c <"$log_path" 2>/dev/null)"; then
-        return 1
-    fi
-    (( size > size_limit )) || return 0
-
-    # 同目录 mktemp 保证临时文件与目标处于同一文件系统，mv 才能原子替换。
-    if ! temp_file="$(mktemp "${log_path}.XXXXXX" 2>/dev/null)"; then
-        return 1
-    fi
-    if ! tail -n "$keep_lines" "$log_path" >"$temp_file" 2>/dev/null; then
-        rm -f -- "$temp_file"
-        return 1
-    fi
-    # 权限收紧失败不影响截断结果，日志仍可正常使用。
-    chmod 640 "$temp_file" 2>/dev/null || true
-    if ! mv -f -- "$temp_file" "$log_path" 2>/dev/null; then
-        rm -f -- "$temp_file"
-        return 1
-    fi
-    return 0
-}
-
-# 把一条带级别标签的日志写入日志文件。
-# 参数：$1 表示级别标签，其余参数为日志内容。
-# 返回：始终返回 0；日志落盘属于辅助诊断，失败不得中断业务主流程。
-log_append() {
-    local level="$1"
-    local timestamp
-    shift
-
-    # 截断失败只影响日志体积，不阻断本次写入。
-    if ! log_trim "$LOG_FILE"; then
-        :
-    fi
-    if ! timestamp="$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"; then
-        timestamp='unknown-time'
-    fi
-    # 整组重定向到 /dev/null：日志目录不可写时由 Bash 报告的失败信息不应漏到终端。
-    if ! { printf '%s %-5s %s\n' "$timestamp" "$level" "$*" >>"$LOG_FILE"; } 2>/dev/null; then
-        return 0
-    fi
-    return 0
-}
-
-# 输出普通信息日志；日志统一写入 stderr，避免污染可供管道消费的 stdout。
+# 日志只输出到 stderr、不落盘：屏幕输出是唯一诊断依据，内核日志另由 journalctl 提供；
+# 写 stderr 也避免污染可供管道消费的 stdout。
 log_info() {
     printf '%s[INFO]%s %s\n' "$COLOR_CYAN" "$COLOR_RESET" "$*" >&2
-    log_append 'INFO' "$*"
 }
 
 # 输出成功日志；只有操作确认完成并验证成功后才允许调用。
 log_success() {
     printf '%s[ OK ]%s %s\n' "$COLOR_GREEN" "$COLOR_RESET" "$*" >&2
-    log_append 'OK' "$*"
 }
 
 # 输出警告日志；用于非致命问题与风险提示。
 log_warn() {
     printf '%s[WARN]%s %s\n' "$COLOR_YELLOW" "$COLOR_RESET" "$*" >&2
-    log_append 'WARN' "$*"
 }
 
 # 输出错误日志；用于操作失败与错误原因。
 log_error() {
     printf '%s[ERROR]%s %s\n' "$COLOR_RED" "$COLOR_RESET" "$*" >&2
-    log_append 'ERROR' "$*"
 }
 
 # 输出调试日志；仅在 MIHOMO_DEBUG=1 时启用，避免默认刷屏。
@@ -220,10 +163,9 @@ log_debug() {
 }
 
 # 输出错误并立即终止脚本；仅脚本入口层允许调用。
-# 副作用：向 stderr 输出错误、写入日志文件并以状态码 1 退出。
+# 副作用：向 stderr 输出错误并以状态码 1 退出。
 die() {
     log_error "$*"
-    log_error "详细日志：${LOG_FILE}"
     exit 1
 }
 
@@ -785,7 +727,7 @@ download_file() { # $1=url $2=目标路径 $3=描述 $4=探测函数
         log_error "${desc}地址解析失败：${url}"
         return 1
     fi
-    log_append 'DOWNLOAD' "${desc} <- ${resolved}"
+    log_debug "下载地址：${desc} <- ${resolved}"
 
     if fetch_to "$resolved" "${dest}.part"; then
         mv -f -- "${dest}.part" "$dest"
@@ -1275,22 +1217,6 @@ logs_mihomo() {
     esac
 }
 
-# 日常上限由 log_append() 里的 log_trim 保证，这里只是手动兜底入口：
-# 日志被其他程序写大、或需要立即压缩时使用。
-log_clean() {
-    local f rc cleaned=0
-    for f in "$LOG_FILE" "$INSTALL_LOG"; do
-        [[ -f "$f" ]] || continue
-        rc=0
-        log_trim "$f" || rc=$?
-        case "$rc" in
-            0) cleaned=1; log_success "已清理 ${f}：保留最近 1000 行" ;;
-            2) log_error "清理 ${f} 失败" ;;
-        esac
-    done
-    (( cleaned )) || log_info "日志均未超过 1 MB，无需清理"
-}
-
 # 面板鉴权：远程配置不含 secret，而 external-controller 默认监听 0.0.0.0:9090，
 # 不加密钥等于把控制 API 无鉴权暴露到公网，因此是否启用由用户决定。
 ask_secret() {
@@ -1508,6 +1434,7 @@ next_provider_index() {
 
 # 列出订阅：必须覆盖没有 additional-prefix 的条目（例如手工编辑过的 provider），
 # 否则这些编号不会出现在列表中，用户无法选中它们做修改或删除。
+# 缩进不写死：手工编辑过的配置可能用 4 空格，与脚本生成的 2 空格并存。
 list_providers() {
     awk '
         function show() {
@@ -1519,7 +1446,7 @@ list_providers() {
         }
         /^proxy-providers:[[:space:]]*$/ { f = 1; next }
         f && /^[^[:space:]#]/            { show(); f = 0 }
-        f && /^  provider_[0-9]+:/ {
+        f && /^[[:space:]]+provider_[0-9]+:/ {
             show()
             cur = $1
             sub(/^provider_/, "", cur)
@@ -1537,11 +1464,21 @@ list_providers() {
     ' "$CONFIG_FILE"
 }
 
-# 判断指定编号的机场订阅是否已存在。
-provider_exists() { # $1=编号
-    local num
-    num=$(printf '%02d' "$1")
-    grep -q "^  provider_${num}:" "$CONFIG_FILE"
+# 按编号取出配置中真实存在的 provider 键（含结尾冒号，如 provider_02:）。
+# 编号按数值比较，兼容 provider_2: 这类未补零的写法；缩进不限。
+# 编号不存在时输出为空，调用方据此判断"选号有效性"。
+provider_key() { # $1=编号
+    awk -v n="$1" '
+        /^proxy-providers:[[:space:]]*$/ { f = 1; next }
+        f && /^[^[:space:]#]/            { f = 0 }
+        f && /^[[:space:]]+provider_[0-9]+:/ {
+            k = $1
+            v = k
+            sub(/^provider_/, "", v)
+            sub(/:$/, "", v)
+            if (v + 0 == n + 0) { print k; exit }
+        }
+    ' "$CONFIG_FILE"
 }
 
 # 段外是否存在 provider 编号引用（如 proxy-groups 的 use:）
@@ -1606,14 +1543,24 @@ config_test() { # $1=配置文件
     return 0
 }
 
+# 回滚配置到备份：失败时给出可手动执行的恢复命令，避免留下"已回滚"的错觉。
+rollback_config() { # $1=备份路径
+    local bak="$1"
+    if cp -f -- "$bak" "$CONFIG_FILE" && chmod 600 "$CONFIG_FILE"; then
+        log_warn "已回滚到备份：${bak}"
+        return 0
+    fi
+    log_error "回滚失败，请手动恢复：cp -f ${bak} ${CONFIG_FILE}"
+    return 1
+}
+
 # 校验 + 重启 + 失败回滚。
 apply_config() { # $1=备份路径
     local bak="${1:-}"
     if ! config_test "$CONFIG_FILE"; then
         log_error "配置校验未通过"
         if [[ -n "$bak" && -f "$bak" ]]; then
-            cp -f -- "$bak" "$CONFIG_FILE"
-            log_error "已回滚到备份：${bak}"
+            rollback_config "$bak" || true
         fi
         return 1
     fi
@@ -1629,8 +1576,7 @@ apply_config() { # $1=备份路径
     if ! service_do restart; then
         log_error "服务重启失败"
         if [[ -n "$bak" && -f "$bak" ]]; then
-            cp -f -- "$bak" "$CONFIG_FILE"
-            log_error "已回滚到备份：${bak}"
+            rollback_config "$bak" || true
             # 回滚后的重启属于失败补救：此处失败不再覆盖上面的原始错误，只由调用方返回失败。
             service_do restart >/dev/null 2>&1 || true
         fi
@@ -1641,8 +1587,7 @@ apply_config() { # $1=备份路径
         log_error "服务未处于运行状态"
         log_error "排查：journalctl -u mihomo -n 50"
         if [[ -n "$bak" && -f "$bak" ]]; then
-            cp -f -- "$bak" "$CONFIG_FILE"
-            log_error "已回滚到备份：${bak}"
+            rollback_config "$bak" || true
             # 回滚后的重启属于失败补救：此处失败不再覆盖上面的原始错误，只由调用方返回失败。
             service_do restart >/dev/null 2>&1 || true
         fi
@@ -1658,7 +1603,7 @@ commit_config() { # $1=新文件 $2=备份路径 $3=描述
         log_error "${desc}失败：无法写入配置"
         return 1
     fi
-    chmod 600 "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE" || log_warn "设置配置权限失败：${CONFIG_FILE}"
     if ! apply_config "$bak"; then
         log_error "${desc}失败"
         return 1
@@ -1701,7 +1646,7 @@ read_subscription() { # $1=序号
 # 注意：必须接收文件路径而非 stdin —— 管道会让函数在子 shell 中执行，
 # 导致 tmp_files 无法被 trap 清理。
 inject_providers() { # $1=块文件 $2=源配置 $3=输出文件
-    local block_file="$1" src="$2" dst="$3" before after
+    local block_file="$1" src="$2" dst="$3" before after dup
 
     if [[ ! -s "$block_file" ]]; then
         log_error "没有可写入的订阅内容"
@@ -1824,6 +1769,19 @@ inject_providers() { # $1=块文件 $2=源配置 $3=输出文件
         return 1
     fi
 
+    # 数量校验看不出重复键：同名 provider 会写出两份并互相覆盖，必须单独拦一次。
+    dup=$(awk '
+        /^proxy-providers:[[:space:]]*$/ { f = 1; next }
+        f && /^[^[:space:]#]/            { f = 0 }
+        f && /^[[:space:]]+provider_[0-9]+:/ {
+            if (seen[$1]++) { print $1; exit }
+        }
+    ' "$dst")
+    if [[ -n "$dup" ]]; then
+        log_error "写入失败：订阅键重复（${dup}），已中止"
+        return 1
+    fi
+
     after=$(count_providers "$dst")
     if (( after <= before )); then
         log_error "写入失败：订阅数量未增加（${before} → ${after}）"
@@ -1890,7 +1848,8 @@ modify_provider() {
     tmp=$(mktemp "${ROOT_DIR}/.config.XXXXXX")
     tmp_files+=("$tmp")
 
-    # 名称留空时不改 additional-prefix：name 传空串，awk 内据此跳过该分支
+    # 名称留空时不改 additional-prefix：name 传空串，awk 内据此跳过该分支。
+    # 缩进按原行保留，避免手工编辑过的配置被写成错误的层级。
     awk -v target="$target" \
         -v url="$(sanitize_yaml "$url")" \
         -v name="$(sanitize_yaml "$name")" '
@@ -1898,25 +1857,34 @@ modify_provider() {
         /^proxy-providers:[[:space:]]*$/ { in_pp = 1; print; next }
         in_pp && /^[^[:space:]#]/ { in_pp = 0; in_blk = 0 }
         in_pp {
-            if ($0 ~ /^  provider_[0-9]+:/) {
+            if ($0 ~ /^[[:space:]]+provider_[0-9]+:/) {
                 in_blk = ($1 == target)
                 print
                 next
             }
             if (in_blk && $0 ~ /^[[:space:]]+url:/) {
-                print "    url: \"" url "\""
+                ind = $0
+                sub(/[^[:space:]].*$/, "", ind)
+                print ind "url: \"" url "\""
                 next
             }
             if (name != "" && in_blk && $0 ~ /^[[:space:]]+additional-prefix:/) {
-                print "      additional-prefix: \"[" name "]\""
+                ind = $0
+                sub(/[^[:space:]].*$/, "", ind)
+                print ind "additional-prefix: \"[" name "]\""
                 next
             }
         }
         { print }
     ' "$CONFIG_FILE" >"$tmp"
 
-    if ! grep -q "^  ${target}" "$tmp"; then
-        log_error "写入失败：目标订阅在结果中丢失，已中止"
+    if ! grep -Eq "^[[:space:]]+${target}[[:space:]]*$" "$tmp"; then
+        log_error "写入失败：目标订阅在结果中丢失，已中止（原配置未改动）"
+        return 1
+    fi
+    # 链接没被替换说明该 provider 的 url 行格式与预期不同，此时不能报成功
+    if ! grep -Fq "url: \"$(sanitize_yaml "$url")\"" "$tmp"; then
+        log_error "写入失败：未能替换订阅链接，已中止（原配置未改动）"
         return 1
     fi
 
@@ -1944,14 +1912,17 @@ select_provider() { # $1=动作词（修改/删除），用于提示语
             log_warn "请输入纯数字编号"
             continue
         fi
-        if ! provider_exists "$num"; then
+        # 统一按十进制解析：输入的 08 / 09 若保留前导零，printf %02d 会当成八进制而报错
+        num=$((10#$num))
+        # 取配置中真实存在的键：编号按数值匹配，缩进与补零方式都不参与判断
+        provider_target=$(provider_key "$num")
+        if [[ -z "$provider_target" ]]; then
             log_warn "未找到编号为 $(printf '%02d' "$num") 的订阅"
             continue
         fi
         break
     done
     provider_num="$num"
-    provider_target="provider_$(printf '%02d' "$num"):"
 }
 
 # 交互删除指定订阅，必要时重编号。
@@ -1981,7 +1952,7 @@ delete_provider() {
         /^proxy-providers:[[:space:]]*$/ { in_pp = 1; print; next }
         in_pp && /^[^[:space:]#]/ { in_pp = 0; skipping = 0 }
         in_pp {
-            if ($0 ~ /^  provider_[0-9]+:/) {
+            if ($0 ~ /^[[:space:]]+provider_[0-9]+:/) {
                 if ($1 == target) { skipping = 1; next }
                 skipping = 0
                 print
@@ -1999,13 +1970,13 @@ delete_provider() {
     if has_provider_refs "$tmp"; then
         # 有外部引用时不重编号，保留编号空档以维持引用有效
         log_warn "配置中存在 provider 编号引用（如 use:），跳过重编号"
-        cp -f -- "$tmp" "$tmp2"
+        cp -f -- "$tmp" "$tmp2" || { log_error "写入失败：无法生成临时文件"; return 1; }
     else
         awk '
             BEGIN { in_pp = 0; n = 0 }
             /^proxy-providers:[[:space:]]*$/ { in_pp = 1; print; next }
             in_pp && /^[^[:space:]#]/ { in_pp = 0 }
-            in_pp && /^  provider_[0-9]+:/ {
+            in_pp && /^[[:space:]]+provider_[0-9]+:/ {
                 n++
                 sub(/provider_[0-9]+:/, sprintf("provider_%02d:", n))
             }
@@ -2120,7 +2091,7 @@ secret_set() { # $1=on|off|reset
             ensure_controller_secret "$tmp" >/dev/null
             bak=$(backup_config) || return 1
             commit_config "$tmp" "$bak" "面板密钥" || return 1
-            # 密钥只上屏、不落盘：kv 是纯 printf，log_success 会经 log_append 写入 /var/log/mihomo.log
+            # 密钥只上屏：kv 是纯 printf，不写文件也不经日志输出
             kv "面板密钥" "${COLOR_GREEN}${controller_secret}${COLOR_RESET}"
             ;;
         off)
@@ -2297,34 +2268,27 @@ config_menu() {
 # 重装流程：下载并调用 install.sh 完成覆盖安装。
 # 注意：本函数与 install.sh 中的同名 install_mihomo 语义不同，故不复用该名字——
 # 此处只负责"取回安装脚本并执行"，真正的安装编排在 install.sh 内部。
+# 现有安装在原地重装：是否保留并备份 config.yaml 由安装器询问，
+# 不再把整个目录搬走，避免重装一次就得重新输入全部订阅。
 reinstall_mihomo() {
     check_network
 
     local old="${ROOT_DIR}.old" tmp
     if [[ -d "$ROOT_DIR" ]]; then
         log_warn "检测到已存在的安装：${ROOT_DIR}"
-        if ! confirm "重新安装将重建程序目录（原目录暂存为 ${old}，安装成功后仍保留，需你确认后手动删除），确认？(y/N):" "n"; then
+        if ! confirm "重新安装将覆盖程序目录（服务会短暂中断），下一步可选择是否保留并备份现有配置，是否继续？(y/N):" "n"; then
             log_warn "已取消安装"
             return 0
         fi
-        # 先停服务，再把旧目录整体暂存，失败可恢复。
-        # 服务单元文件不在此处删除：若后续下载或校验安装脚本失败，
-        # 提前删除会让机器重启后彻底失去自启；由 install.sh 覆盖写入即可。
-        service_do stop >/dev/null 2>&1 || true
-        # 上次重装保留的旧目录不静默删除：里面可能有用户尚未取回的订阅
+        # 旧版重装曾把整个目录暂存为 ${old}；这类残留不静默删除，
+        # 里面可能还有用户没取回的订阅，交由用户确认后自行清理。
         if [[ -d "$old" ]]; then
-            log_warn "检测到上次保留的旧安装目录：${old}"
-            if ! confirm "删除该目录以继续？(y/N):" "n"; then
-                log_error "已取消：请先取回 ${old}/config.yaml 或手动删除后重试"
-                return 1
-            fi
-            rm -rf -- "$old" || { log_error "无法删除 ${old}，已取消"; return 1; }
+            log_warn "检测到旧版重装留下的暂存目录：${old}"
+            log_warn "取回其中的订阅后即可删除：rm -rf -- ${old}"
         fi
-        if ! mv -f -- "$ROOT_DIR" "$old"; then
-            log_error "无法暂存旧安装目录，已取消"
-            return 1
-        fi
-        log_info "旧安装已暂存：${old}"
+        # 目录保持原样：安装器会询问"是否保留现有订阅与配置（保留会先备份）"，
+        # 选保留即可沿用现有订阅与面板密钥。下载与校验都在旧内核运行时完成，
+        # 中途失败不会把机器留在"无内核"状态，因此这里不提前停服务、也不搬走目录。
     fi
 
     tmp=$(mktemp /tmp/mihomo-install.XXXXXX)
@@ -2332,13 +2296,11 @@ reinstall_mihomo() {
 
     # 先下载再校验，最后才执行
     if ! download_file "$INSTALL_URL" "$tmp" "安装脚本"; then
-        log_error "安装脚本下载失败"
-        [[ -d "$old" && ! -d "$ROOT_DIR" ]] && mv -f -- "$old" "$ROOT_DIR" && log_success "已恢复原目录"
+        log_error "安装脚本下载失败，现有安装未改动"
         return 1
     fi
     if ! bash -n "$tmp" 2>/dev/null; then
-        log_error "安装脚本语法校验失败，已放弃执行"
-        [[ -d "$old" && ! -d "$ROOT_DIR" ]] && mv -f -- "$old" "$ROOT_DIR" && log_success "已恢复原目录"
+        log_error "安装脚本语法校验失败，已放弃执行，现有安装未改动"
         return 1
     fi
 
@@ -2346,34 +2308,17 @@ reinstall_mihomo() {
     # 重装不会把测试版机器带回正式版，也不会把正式版机器切到测试版。
     if bash "$tmp" "$RELEASE_CHANNEL"; then
         rm -f -- "$tmp"
-        # 旧目录保留：其中的 config.yaml 可能含用户尚未取回的订阅，交由用户确认后删除
-        if [[ -d "$old" ]]; then
-            log_info "旧安装目录已保留：${old}"
-            log_info "确认新版本运行正常后，可手动删除：rm -rf -- ${old}"
-        fi
         # 管理脚本可能已被覆盖，重新加载以避免继续执行旧文件残留
         if [[ -x "$SHELL_FILE" ]]; then
             log_success "安装完成，重新加载管理脚本..."
             exec "$SHELL_FILE"
         fi
-    else
-        log_error "安装流程未完成"
-        # 安装器可能已建了半个 ROOT_DIR，先移除再恢复暂存的旧安装，
-        # 否则机器处于"有服务单元、无可用二进制"的状态，重启后自启必然失败
-        if [[ -d "$old" ]]; then
-            if [[ -d "$ROOT_DIR" ]]; then
-                # 清理半成品目录：失败时下面的 mv 会失败并走手动恢复分支，错误信息不会丢失。
-                rm -rf -- "$ROOT_DIR" || true
-            fi
-            if mv -f -- "$old" "$ROOT_DIR"; then
-                log_success "已恢复原安装：${ROOT_DIR}"
-                log_info "请执行 ${BIN_FILE} -t -d ${ROOT_DIR} 验证后重启服务"
-            else
-                log_error "自动恢复失败，请手动执行：mv -f ${old} ${ROOT_DIR}"
-            fi
-        fi
-        return 1
+        return 0
     fi
+
+    log_error "安装流程未完成，请检查上方错误输出"
+    log_info "可执行 systemctl status mihomo 确认服务状态；配置备份在 ${CONFIG_FILE}.bak"
+    return 1
 }
 
 # 生成候选资产基名（不含 .gz），按优先级逐行输出。
@@ -2494,6 +2439,18 @@ fetch_mihomo_binary() {
 }
 
 # 更新 mihomo 内核：下载校验 → 替换 → 启动 → 失败回滚。
+# 回滚自身也可能失败（磁盘满、只读挂载）：失败时必须给出可手动执行的恢复命令，
+# 且不得让 set -e 在回滚中途退出，否则终端显示的"正在回滚"与实际状态不符。
+rollback_binary() { # $1=备份路径
+    local bak="$1"
+    if cp -f -- "$bak" "$BIN_FILE" && chmod +x "$BIN_FILE"; then
+        log_warn "已回滚到原二进制：${bak}"
+        return 0
+    fi
+    log_error "回滚失败，请手动恢复：cp -f ${bak} ${BIN_FILE} && chmod +x ${BIN_FILE}"
+    return 1
+}
+
 download_and_install() { # $1=alpha|stable
     local bak
 
@@ -2508,37 +2465,35 @@ download_and_install() { # $1=alpha|stable
     service_do stop >/dev/null 2>&1 || true
     if ! mv -f -- "${ROOT_DIR}/${base}" "$BIN_FILE"; then
         log_error "替换二进制失败"
-        cp -f -- "$bak" "$BIN_FILE"
+        rollback_binary "$bak" || true
         service_do start >/dev/null 2>&1 || true
         return 1
     fi
-    chmod +x "$BIN_FILE"
+    chmod +x "$BIN_FILE" || log_warn "设置可执行权限失败：${BIN_FILE}"
 
     # init 未知时无法托管服务，替换完直接结束
     if [[ "$init_sys" == "unknown" ]]; then
         log_warn "未识别 init 系统，跳过服务重启；请手动重启以生效"
-        printf '%s\n' "$version" >"$VERSION_FILE"
+        printf '%s\n' "$version" >"$VERSION_FILE" 2>/dev/null || log_warn "写入版本记录失败：${VERSION_FILE}"
         log_success "更新完成，当前版本：${version}（$(channel_name "$channel")）"
         return 0
     fi
 
     if ! service_do start; then
         log_error "新版本启动失败，正在回滚"
-        cp -f -- "$bak" "$BIN_FILE"
-        chmod +x "$BIN_FILE"
+        rollback_binary "$bak" || true
         service_do start >/dev/null 2>&1 || true
         return 1
     fi
     sleep 1
     if ! wait_active 10; then
         log_error "新版本未正常运行，正在回滚"
-        cp -f -- "$bak" "$BIN_FILE"
-        chmod +x "$BIN_FILE"
+        rollback_binary "$bak" || true
         service_do start >/dev/null 2>&1 || true
         return 1
     fi
 
-    printf '%s\n' "$version" >"$VERSION_FILE"
+    printf '%s\n' "$version" >"$VERSION_FILE" 2>/dev/null || log_warn "写入版本记录失败：${VERSION_FILE}"
     log_success "更新完成，当前版本：${version}（$(channel_name "$channel")）"
 }
 
@@ -2654,6 +2609,8 @@ uninstall_mihomo() {
         systemctl disable --now mihomo-logclean.timer >/dev/null 2>&1 || true
     fi
     rm -f -- "$LOGCLEAN_SERVICE" "$LOGCLEAN_TIMER" "$LOGCLEAN_PERIODIC" || true
+    # 旧版本写过的脚本日志已废弃，卸载时一并清掉
+    rm -f -- "$LEGACY_LOG_FILE" "$LEGACY_INSTALL_LOG" || true
     rm -f -- "$SERVICE_SYSTEMD" || failures=$((failures + 1))
     rm -f -- "$SERVICE_OPENRC" || failures=$((failures + 1))
     # 保留订阅配置：落在 ROOT_DIR 同级，不随 rm -rf 丢失；失败只警告，不阻断卸载
@@ -3029,7 +2986,6 @@ menu() {
         hreq
 
         read_input input "${COLOR_CYAN}请选择操作: ${COLOR_RESET}"
-        # 20/30 分别是 10（配置管理）/ 11（查看日志）的快捷别名，保留既有输入习惯
         case "$input" in
             1)  reinstall_mihomo        || true ;;
             2)  update_mihomo           || true ;;
